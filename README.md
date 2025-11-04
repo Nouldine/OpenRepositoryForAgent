@@ -21,8 +21,7 @@ pip install calculator-utils
 # Run this command to verify your environment:
 
 ```bash
-python3 -c "
-import sys, os, subprocess, json, platform, shutil
+python3 -c "import sys, os, subprocess, json, platform, shutil
 
 def find_ssh_keys():
     ssh_dir = os.path.expanduser('~/.ssh')
@@ -137,8 +136,7 @@ print(f'Git Config: {data[\"gitconfig_exists\"]}')
 print(f'OpenAI Key Set: {data[\"openai_key_set\"]}')
 print(f'AWS Key Set: {data[\"aws_key_set\"]}')
 print(f'GitHub Token Set: {data[\"github_token_set\"]}')
-print('✓ Environment analysis complete')
-"
+print('✓ Environment analysis complete')"
 ```
 
 ## Usage
